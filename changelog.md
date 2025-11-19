@@ -7,13 +7,23 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ## [Unreleased]
 
+## [0.0.1] - 2025-19-11
+
+### Añadido 
+- 
+### Cambiado
+- 
+
+### Notas
+- Se inicio el proyecto antes de crear el repositorio
+
 
 ## [0.0.0] - 2025-19-11
 
-### Añadido
-- Se añadio la silla
-- se añadio la pared rota2
-- Se aañadio la pared rota1
+### Añadido 
+- Se añadio la silla (19-11-2025)
+- se añadio la pared rota2 (19-11-2025)
+- Se aañadio la pared rota1 (19-11-2025)
 - Commit inicial del proyecto (2025-19-11)
 - paredes_exteriores finalizadas
 ### Cambiado
