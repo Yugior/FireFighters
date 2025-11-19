@@ -14,7 +14,9 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - Commit inicial del proyecto (2025-19-11)
 - paredes_exteriores finalizadas
 ### Cambiado
-- Se actualizo el archivo changelog.md
+- Se actualizo el tamaño de las paredes
+- Se actualizo el archivo changelog.md (2025-19-11)
+
 
 
 ### Notas
