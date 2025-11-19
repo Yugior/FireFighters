@@ -1,25 +1,35 @@
-Changelog
-Todos los cambios relevantes de este proyecto serán documentados en este archivo.
+# Changelog
 
-El formato está basado en Keep a Changelog,
-y este proyecto sigue las reglas de Versionado Semántico.
+Todos los cambios notables de este proyecto serán documentados en este archivo.
 
-[Versión] - DD/MM/AAAA
-Added
-Changed
-Fixed
-Removed
-[0.0.1] - 10/11/2022
-Added
-Se actualiza South Area, se agregan cilindros (10/11/2022).
-Se actualiza North Area y se añaden esferas (10/11/2022).
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
+y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[0.0.0] - 10/11/2022
-Added
-Commit inicial del proyecto (10/11/2022).
-Primer commit del proyecto (10/11/2022).
-Actualización inicial de la escena (10/11/2022).
-Creación de prefabs (10/11/2022).
-Update North Prefab (10/11/2022).
-Se agrega el changelog al proyecto (10/11/2022).
-Se agrega plantilla para PR (10/11/2022).
+## [Unreleased]
+
+
+## [0.0.0] - 2025-19-11
+
+### Añadido
+- Commit inicial del proyecto (2025-19-11)
+- paredes_exteriores finalizadas
+### Cambiado
+- Se actualizo el archivo changelog.md
+
+
+### Notas
+- Se inicio el proyecto antes de crear el repositorio
+
+
+
+
+---
+
+## Convenciones para futuros cambios
+
+- **Añadido** para nuevas funcionalidades.
+- **Cambiado** para cambios en funcionalidades existentes.
+- **Obsoleto** para características que serán eliminadas en próximas versiones.
+- **Eliminado** para características eliminadas.
+- **Corregido** para corrección de errores.
+- **Seguridad** para vulnerabilidades.
