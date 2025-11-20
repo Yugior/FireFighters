@@ -10,6 +10,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [0.0.1] - 2025-19-11
 
 ### Añadido 
+- Se agregaron 4 paredes internas (20-11-2025)
 - Se agregaron dos paredes y seccion Interior (20-11-2025)
 - Se agregan fila de paredes (20-11-2025)
 ### Cambiado
