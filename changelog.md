@@ -10,6 +10,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [0.0.1] - 2025-19-11
 
 ### Añadido
+- Se agregarón puertas y prefabs de decoración (26-11-2025)
 - Se agregarón nuevos Prefabs de paredes y esquinas (26-11-2025) 
 - Sección de paredes internas completas (26-11-2025)
 - Se agregaron 4 paredes internas (20-11-2025)
