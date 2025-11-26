@@ -10,6 +10,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 ## [0.0.1] - 2025-19-11
 
 ### Añadido
+- Se agrega decoración (26-11-2025)
 - Se agrega una mesa y sus sillas (26-11-2025)
 - Se agregarón puertas y prefabs de decoración (26-11-2025)
 - Se agregarón nuevos Prefabs de paredes y esquinas (26-11-2025) 
