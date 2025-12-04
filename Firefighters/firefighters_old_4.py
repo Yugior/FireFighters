@@ -7,6 +7,8 @@ Original file is located at
     https://colab.research.google.com/drive/1OU-y_58IqfaE31EvQYHLlgy4rr1nJO56
 """
 
+#
+
 #!pip install numpy scipy matplotlib seaborn scikit-learn mesa -q
 
 from mesa import Agent, Model
@@ -40,7 +42,7 @@ class Bombero(Agent):
         self.tieneCivil = False
         self.celdas_exploradas = set()
         self.ultimo_objetivo = None
-        self.herido = False
+        self.herido = False  # NUEVO: indica si el bombero está herido
 
     def puede_moverse(self, desde, hacia):
         if not self.model.hay_pared_entre(desde, hacia):
@@ -95,7 +97,6 @@ class Bombero(Agent):
         )
 
     def buscar_camino_bfs(self, objetivo):
-        """BFS que considera puertas cerradas como pasables (se pueden abrir)"""
         if self.pos == objetivo:
             return []
         visitados = {self.pos}
@@ -108,12 +109,8 @@ class Bombero(Agent):
             )
             for vecino in vecinos:
                 if vecino not in visitados:
-                    # Puede pasar si no hay pared O si hay puerta (abierta o cerrada)
-                    hay_pared = self.model.hay_pared_entre(actual, vecino)
+                    puede_pasar = self.puede_moverse(actual, vecino)
                     hay_puerta = self.model.hay_puerta_entre(actual, vecino)
-
-                    puede_pasar = (not hay_pared) or hay_puerta
-
                     if puede_pasar:
                         nuevo_camino = camino + [vecino]
                         if vecino == objetivo:
@@ -138,38 +135,51 @@ class Bombero(Agent):
         """Devuelve la base más cercana al bombero usando BFS real."""
         bases_con_distancia = []
 
-        for base in self.model.base_position:
+        for base in self.model.base_position:  # lista de posiciones
             camino = self.buscar_camino_bfs(base)
             if camino is not None:
                 bases_con_distancia.append((base, len(camino)))
-            elif self.pos == base:
-                return base  # Ya está en una base
 
         if not bases_con_distancia:
-            return None
+            return None  # No hay camino a ninguna base
 
+        # Base con menor distancia
         return min(bases_con_distancia, key=lambda x: x[1])[0]
 
     def respawnear_en_base(self):
-        """Respawnea en base más cercana cuando recibe daño"""
+        """
+        Cuando el bombero recibe daño, desaparece de su posición actual
+        y reaparece en la base más cercana.
+        Si llevaba un civil, el civil se pierde.
+        """
+        # Si llevaba un civil, se pierde
         if self.tieneCivil:
             self.tieneCivil = False
             self.model.civiles_perdidos += 1
 
+        # Encontrar la base más cercana
+
         base_destino = self.base_mas_cercana()
+
         if base_destino is None:
+            # Si no encuentra camino, usar la primera base disponible
             base_destino = self.model.base_position[0]
 
+        # Mover al bombero a la base
         self.model.grid.move_agent(self, base_destino)
+
+        # Resetear estado del bombero
         self.herido = False
-        self.energia_actual = 0
+        self.energia_actual = 0  # Pierde toda la energía del turno
         self.energia_guardada = 0
+
+
 
     def encontrar_civil_revelado_mas_cercano(self):
         """Encuentra el civil ya revelado más cercano"""
         civiles = []
         for pos, revelado in self.model.civiles_revelados.items():
-            if revelado:
+            if revelado:  # Solo civiles revelados
                 camino = self.buscar_camino_bfs(pos)
                 if camino is not None:
                     civiles.append((pos, len(camino)))
@@ -189,7 +199,6 @@ class Bombero(Agent):
         return min(fuegos, key=lambda x: x[1])[0]
 
     def mover_hacia(self, objetivo):
-        """Mueve hacia el objetivo, abriendo puertas si es necesario"""
         if self.energia_actual < 1:
             return False
         camino = self.buscar_camino_bfs(objetivo)
@@ -197,7 +206,6 @@ class Bombero(Agent):
             return False
         siguiente = camino[0]
 
-        # Si puede moverse directamente
         if self.puede_moverse(self.pos, siguiente):
             self.model.grid.move_agent(self, siguiente)
             self.visited += 1
@@ -208,29 +216,29 @@ class Bombero(Agent):
             if self.model.is_poi(siguiente):
                 tipo = self.model.revelar_poi(siguiente)
                 if tipo == 'civil':
+                    # Recoger civil
                     self.model.quitar_civil(siguiente)
                     self.civilesRes += 1
                     self.tieneCivil = True
+                    # CORRECCIÓN: usar "in" en lugar de "=="
                     if siguiente in self.model.base_position:
                         self.tieneCivil = False
-                        self.model.civiles_rescatados += 1
+                        self.model.civiles_rescatados += 1  # AÑADIR: incrementar contador
+                # Si es falsa alarma, no hace nada (ya se removió del tablero)
 
-            # Verificar si llegó a base con civil
+            # AÑADIR: Verificar si llegó a base con civil
             if self.tieneCivil and siguiente in self.model.base_position:
                 self.tieneCivil = False
                 self.model.civiles_rescatados += 1
 
             return True
 
-        # Si hay puerta cerrada, abrirla
         elif self.model.hay_puerta_entre(self.pos, siguiente):
             if not self.model.esta_puerta_abierta(self.pos, siguiente):
                 return self.abrir_puerta(self.pos, siguiente)
-
         return False
 
     def movimiento_aleatorio(self):
-        """Movimiento aleatorio exploratorio"""
         if self.energia_actual < 1:
             return False
         vecinos = list(self.get_neighbors())
@@ -244,23 +252,25 @@ class Bombero(Agent):
                 self.visited += 1
                 self.energia_actual -= 1
 
+                # Verificar si llegó a un POI
                 if self.model.is_poi(vecino):
                     tipo = self.model.revelar_poi(vecino)
                     if tipo == 'civil':
                         self.model.quitar_civil(vecino)
                         self.civilesRes += 1
                         self.tieneCivil = True
+                        # CORRECCIÓN: usar "in" en lugar de "=="
                         if vecino in self.model.base_position:
                             self.tieneCivil = False
-                            self.model.civiles_rescatados += 1
+                            self.model.civiles_rescatados += 1  # AÑADIR
 
+                # AÑADIR: Verificar si llegó a base con civil
                 if self.tieneCivil and vecino in self.model.base_position:
                     self.tieneCivil = False
                     self.model.civiles_rescatados += 1
 
                 return True
 
-        # Intentar abrir puerta
         for vecino in vecinos:
             if self.model.hay_puerta_entre(self.pos, vecino):
                 if not self.model.esta_puerta_abierta(self.pos, vecino):
@@ -268,249 +278,82 @@ class Bombero(Agent):
 
         return self.gastar_energia()
 
-    # ================================================================
-    # MÉTODOS DE EVALUACIÓN ESTRATÉGICA
-    # ================================================================
-
-    def encontrar_civil_en_peligro(self):
-        """Encuentra civil revelado cerca del fuego (URGENTE)"""
-        civiles_en_peligro = []
-        for pos, revelado in self.model.civiles_revelados.items():
-            if revelado:
-                x, y = pos
-                peligro = 0
-                for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
-                    vecino = (x+dx, y+dy)
-                    if vecino in self.model.posicionesFuego:
-                        peligro += 5  # Fuego = muy peligroso
-                    if vecino in self.model.posicionesHumo:
-                        peligro += 2  # Humo = peligro medio
-
-                camino = self.buscar_camino_bfs(pos)
-                if camino is not None:
-                    # Menor puntuación = más prioritario
-                    # Más peligro reduce la puntuación (más urgente)
-                    puntuacion = len(camino) - (peligro * 2)
-                    civiles_en_peligro.append((pos, puntuacion, peligro))
-
-        if not civiles_en_peligro:
-            return None
-
-        # Ordenar por puntuación (menor = más urgente)
-        civiles_en_peligro.sort(key=lambda x: x[1])
-        return civiles_en_peligro[0][0]
-
-    def encontrar_poi_mas_cercano_y_seguro(self):
-        """Encuentra POI cercano que no esté rodeado de fuego"""
-        pois = []
-        for pos in self.model.posicionesPOI:
-            x, y = pos
-            fuegos_cerca = 0
-            for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
-                vecino = (x+dx, y+dy)
-                if vecino in self.model.posicionesFuego:
-                    fuegos_cerca += 1
-
-            camino = self.buscar_camino_bfs(pos)
-            if camino is not None:
-                # Penalizar POIs rodeados de fuego, pero no descartarlos
-                puntuacion = len(camino) + (fuegos_cerca * 2)
-                pois.append((pos, puntuacion))
-
-        if not pois:
-            return None
-
-        return min(pois, key=lambda x: x[1])[0]
-
-    def encontrar_fuego_amenazante(self):
-        """Encuentra fuego que amenaza POIs o civiles"""
-        fuegos_amenazantes = []
-        for pos_fuego in self.model.posicionesFuego:
-            x, y = pos_fuego
-            amenaza = 0
-            for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
-                vecino = (x+dx, y+dy)
-                if vecino in self.model.posicionesPOI:
-                    amenaza += 3
-                if vecino in self.model.civiles_revelados and self.model.civiles_revelados[vecino]:
-                    amenaza += 5  # Civil revelado = más importante
-
-            if amenaza > 0:
-                camino = self.buscar_camino_bfs(pos_fuego)
-                if camino is not None:
-                    # Menor puntuación = más prioritario
-                    fuegos_amenazantes.append((pos_fuego, len(camino) - amenaza))
-
-        if not fuegos_amenazantes:
-            return None
-
-        return min(fuegos_amenazantes, key=lambda x: x[1])[0]
-
-    def hay_fuego_en_camino(self, objetivo):
-        """Verifica si hay fuego en las primeras celdas del camino"""
-        camino = self.buscar_camino_bfs(objetivo)
-        if camino is None:
-            return True
-        for pos in camino[:2]:  # Solo primeras 2 celdas
-            if pos in self.model.posicionesFuego:
-                return True
-        return False
-
-    def encontrar_fuego_bloqueante(self, objetivo):
-        """Encuentra el primer fuego que bloquea el camino"""
-        camino = self.buscar_camino_bfs(objetivo)
-        if camino is None:
-            return None
-        for pos in camino:
-            if pos in self.model.posicionesFuego:
-                return pos
-        return None
-
-    # ================================================================
-    # MÉTODO STEP - ESTRATEGIA OPTIMIZADA PARA RESCATE
-    # ================================================================
 
     def step(self):
-        """
-        ESTRATEGIA OPTIMIZADA PARA GANAR:
-
-        Objetivo principal: Rescatar 7 civiles antes de perder 4
-
-        PRIORIDADES:
-        1. ENTREGAR CIVIL (si tiene uno, ir directo a base)
-        2. SOBREVIVIR (apagar fuego si estoy encima)
-        3. RESCATAR CIVIL EN PELIGRO (cerca del fuego)
-        4. RESCATAR CIVIL REVELADO (cualquiera)
-        5. REVELAR POI (buscar más civiles)
-        6. APAGAR FUEGO AMENAZANTE (proteger POIs/civiles)
-        7. EXPLORAR (si no hay nada más que hacer)
-        """
         self.energia_actual = self.energia_maxima + self.energia_guardada
         self.energia_guardada = 0
         self.celdas_exploradas.add(self.pos)
 
-        # ENTREGAR CIVIL SI ESTÁ EN BASE
+        # CORRECCIÓN: usar "in" para verificar si está en alguna base
         if self.pos in self.model.base_position and self.tieneCivil:
             self.tieneCivil = False
-            self.model.civiles_rescatados += 1
+            self.model.civiles_rescatados += 1  # AÑADIR: incrementar contador
 
         while self.energia_actual > 0:
             accion_realizada = False
 
-            # ========================================================
-            # PRIORIDAD 1: SI TIENE CIVIL → IR A BASE (NO DETENERSE)
-            # ========================================================
-            if self.tieneCivil:
-                # Solo apagar fuego si estoy ENCIMA (para sobrevivir)
-                if self.model.tieneFuegoEn(self.pos):
-                    accion_realizada = self.apagar_fuego()
-                    if accion_realizada:
-                        continue
-
-                # Ir a la base más cercana
-                if self.pos not in self.model.base_position:
-                    base = self.base_mas_cercana()
-                    if base:
-                        accion_realizada = self.mover_hacia(base)
-                        if not accion_realizada:
-                            # Si no puede moverse, intentar otro camino
-                            accion_realizada = self.movimiento_aleatorio()
-                    else:
-                        accion_realizada = self.movimiento_aleatorio()
-                else:
-                    # Ya en base, entregar civil
-                    self.tieneCivil = False
-                    self.model.civiles_rescatados += 1
-                    accion_realizada = True
-
-                if accion_realizada:
-                    continue
-                else:
-                    break  # No puede hacer nada, salir del bucle
-
-            # ========================================================
-            # PRIORIDAD 2: SOBREVIVIR - Apagar fuego/humo en MI posición
-            # ========================================================
+            # PRIORIDAD 1: Apagar fuego en posición actual
             if self.model.tieneFuegoEn(self.pos):
                 accion_realizada = self.apagar_fuego()
                 if accion_realizada:
                     continue
 
+            # PRIORIDAD 2: Apagar humo en posición actual
             if self.model.tieneHumoEn(self.pos):
                 accion_realizada = self.apagar_humo()
                 if accion_realizada:
                     continue
 
-            # ========================================================
-            # PRIORIDAD 3: RESCATAR CIVIL EN PELIGRO (cerca del fuego)
-            # ========================================================
-            civil_peligro = self.encontrar_civil_en_peligro()
-            if civil_peligro:
-                # Si hay fuego bloqueando, ir a apagarlo
-                if self.hay_fuego_en_camino(civil_peligro):
-                    fuego = self.encontrar_fuego_bloqueante(civil_peligro)
-                    if fuego:
-                        accion_realizada = self.mover_hacia(fuego)
-                        if accion_realizada:
-                            continue
+            # PRIORIDAD 3: Si tiene civil, ir a la base MÁS CERCANA
+            if self.tieneCivil:
+                # CORRECCIÓN: Verificar con "in" si ya está en una base
+                if self.pos not in self.model.base_position:
+                    # Encontrar la base más cercana
+                    bases_con_distancia = []
+                    for base in self.model.base_position:
+                        camino = self.buscar_camino_bfs(base)
+                        if camino is not None:
+                            bases_con_distancia.append((base, len(camino)))
 
-                # Ir al civil
-                accion_realizada = self.mover_hacia(civil_peligro)
-                if accion_realizada:
-                    continue
+                    if bases_con_distancia:
+                        base_mas_cercana = min(bases_con_distancia, key=lambda x: x[1])[0]
+                        accion_realizada = self.mover_hacia(base_mas_cercana)
+                    else:
+                        accion_realizada = self.gastar_energia()
+                else:
+                    # Ya está en base, entregar civil (esto ya debería haberse hecho arriba)
+                    if self.tieneCivil:
+                        self.tieneCivil = False
+                        self.model.civiles_rescatados += 1
+                    accion_realizada = True  # Marcar como acción realizada
 
-            # ========================================================
-            # PRIORIDAD 4: RESCATAR CUALQUIER CIVIL REVELADO
-            # ========================================================
-            civil_objetivo = self.encontrar_civil_revelado_mas_cercano()
-            if civil_objetivo:
-                accion_realizada = self.mover_hacia(civil_objetivo)
-                if accion_realizada:
-                    continue
-
-            # ========================================================
-            # PRIORIDAD 5: REVELAR POI (puede ser civil)
-            # ========================================================
-            poi_objetivo = self.encontrar_poi_mas_cercano_y_seguro()
-            if poi_objetivo:
-                accion_realizada = self.mover_hacia(poi_objetivo)
-                if accion_realizada:
-                    continue
-
-            # ========================================================
-            # PRIORIDAD 6: APAGAR FUEGO AMENAZANTE (protege POIs/civiles)
-            # ========================================================
-            fuego_amenazante = self.encontrar_fuego_amenazante()
-            if fuego_amenazante:
-                accion_realizada = self.mover_hacia(fuego_amenazante)
-                if accion_realizada:
-                    continue
-
-            # ========================================================
-            # PRIORIDAD 7: APAGAR CUALQUIER FUEGO CERCANO
-            # ========================================================
-            fuego_objetivo = self.encontrar_fuego_mas_cercano()
-            if fuego_objetivo:
-                accion_realizada = self.mover_hacia(fuego_objetivo)
-                if accion_realizada:
-                    continue
-
-            # ========================================================
-            # PRIORIDAD 8: EXPLORAR (movimiento aleatorio)
-            # ========================================================
-            accion_realizada = self.movimiento_aleatorio()
+            else:
+                # PRIORIDAD 4: Buscar civil revelado
+                civil_objetivo = self.encontrar_civil_revelado_mas_cercano()
+                if civil_objetivo:
+                    accion_realizada = self.mover_hacia(civil_objetivo)
+                else:
+                    # PRIORIDAD 5: Buscar POI no revelado
+                    poi_objetivo = self.encontrar_poi_mas_cercano()
+                    if poi_objetivo:
+                        accion_realizada = self.mover_hacia(poi_objetivo)
+                    else:
+                        # PRIORIDAD 6: Combatir fuego
+                        fuego_objetivo = self.encontrar_fuego_mas_cercano()
+                        if fuego_objetivo:
+                            accion_realizada = self.mover_hacia(fuego_objetivo)
+                        else:
+                            accion_realizada = self.movimiento_aleatorio()
 
             if not accion_realizada:
-                # Si no puede hacer NADA, gastar energía para evitar bucle infinito
                 self.gastar_energia()
 
-        # Guardar energía sobrante para el siguiente turno
         if self.energia_actual > 0:
             self.energia_guardada = min(self.energia_actual, self.energia_maxima)
 
     def step_micro(self):
         """
-        Versión 'micro' del step para la estrategia nueva:
+        Versión 'micro' del step:
         - Si empieza turno, recarga energía.
         - Hace SOLO UNA acción con la misma prioridad que step().
         - Baja la energía acorde a la acción.
@@ -533,112 +376,62 @@ class Bombero(Agent):
 
         accion_realizada = False
 
-        # ========================================================
-        # PRIORIDAD 1: SI TIENE CIVIL → IR A BASE (NO DETENERSE)
-        # ========================================================
-        if self.tieneCivil:
-            # Solo apagar fuego si estoy ENCIMA (para sobrevivir)
-            if self.model.tieneFuegoEn(self.pos):
-                accion_realizada = self.apagar_fuego()
+        # PRIORIDAD 1: Apagar fuego en posición actual
+        if self.model.tieneFuegoEn(self.pos):
+            accion_realizada = self.apagar_fuego()
 
-            elif self.model.tieneHumoEn(self.pos):
-                accion_realizada = self.apagar_humo()
+        # PRIORIDAD 2: Apagar humo en posición actual
+        if not accion_realizada and self.model.tieneHumoEn(self.pos):
+            accion_realizada = self.apagar_humo()
 
-            else:
-                # Ir a la base más cercana
-                if self.pos not in self.model.base_position:
-                    base = self.base_mas_cercana()
-                    if base:
-                        accion_realizada = self.mover_hacia(base)
-                    else:
-                        accion_realizada = self.movimiento_aleatorio()
+        # PRIORIDAD 3: Si tiene civil, ir a la base MÁS CERCANA
+        if not accion_realizada and self.tieneCivil:
+            if self.pos not in self.model.base_position:
+                bases_con_distancia = []
+                for base in self.model.base_position:
+                    camino = self.buscar_camino_bfs(base)
+                    if camino is not None:
+                        bases_con_distancia.append((base, len(camino)))
+
+                if bases_con_distancia:
+                    base_mas_cercana = min(bases_con_distancia, key=lambda x: x[1])[0]
+                    accion_realizada = self.mover_hacia(base_mas_cercana)
                 else:
-                    # Ya en base, entregar civil
+                    accion_realizada = self.gastar_energia()
+            else:
+                # Ya está en base: entregar civil (por si llegó justo en el micro anterior)
+                if self.tieneCivil:
                     self.tieneCivil = False
                     self.model.civiles_rescatados += 1
-                    accion_realizada = True
+                accion_realizada = True
 
-        else:
-            # ========================================================
-            # PRIORIDAD 2: SOBREVIVIR - Apagar fuego/humo en MI posición
-            # ========================================================
-            if self.model.tieneFuegoEn(self.pos):
-                accion_realizada = self.apagar_fuego()
-
-            elif self.model.tieneHumoEn(self.pos):
-                accion_realizada = self.apagar_humo()
-
-            # ========================================================
-            # PRIORIDAD 3: RESCATAR CIVIL EN PELIGRO (cerca del fuego)
-            # ========================================================
-            if not accion_realizada:
-                if hasattr(self, "encontrar_civil_en_peligro"):
-                    civil_peligro = self.encontrar_civil_en_peligro()
-                else:
-                    civil_peligro = None
-
-                if civil_peligro:
-                    fuego_bloqueante = None
-                    if hasattr(self, "hay_fuego_en_camino") and hasattr(self, "encontrar_fuego_bloqueante"):
-                        if self.hay_fuego_en_camino(civil_peligro):
-                            fuego_bloqueante = self.encontrar_fuego_bloqueante(civil_peligro)
-
-                    if fuego_bloqueante:
-                        accion_realizada = self.mover_hacia(fuego_bloqueante)
-                    else:
-                        accion_realizada = self.mover_hacia(civil_peligro)
-
-            # ========================================================
-            # PRIORIDAD 4: RESCATAR CUALQUIER CIVIL REVELADO
-            # ========================================================
-            if not accion_realizada:
-                civil_objetivo = self.encontrar_civil_revelado_mas_cercano()
-                if civil_objetivo:
-                    accion_realizada = self.mover_hacia(civil_objetivo)
-
-            # ========================================================
-            # PRIORIDAD 5: REVELAR POI (puede ser civil)
-            # ========================================================
-            if not accion_realizada:
-                if hasattr(self, "encontrar_poi_mas_cercano_y_seguro"):
-                    poi_objetivo = self.encontrar_poi_mas_cercano_y_seguro()
-                else:
-                    poi_objetivo = self.encontrar_poi_mas_cercano()
-
+        # PRIORIDAD 4–6: si NO tiene civil
+        if not accion_realizada and not self.tieneCivil:
+            # PRIORIDAD 4: Buscar civil revelado
+            civil_objetivo = self.encontrar_civil_revelado_mas_cercano()
+            if civil_objetivo:
+                accion_realizada = self.mover_hacia(civil_objetivo)
+            else:
+                # PRIORIDAD 5: Buscar POI no revelado
+                poi_objetivo = self.encontrar_poi_mas_cercano()
                 if poi_objetivo:
                     accion_realizada = self.mover_hacia(poi_objetivo)
-
-            # ========================================================
-            # PRIORIDAD 6: APAGAR FUEGO AMENAZANTE
-            # ========================================================
-            if not accion_realizada:
-                if hasattr(self, "encontrar_fuego_amenazante"):
-                    fuego_amenazante = self.encontrar_fuego_amenazante()
                 else:
-                    fuego_amenazante = None
-
-                if fuego_amenazante:
-                    accion_realizada = self.mover_hacia(fuego_amenazante)
-
-            # ========================================================
-            # PRIORIDAD 7: APAGAR CUALQUIER FUEGO CERCANO
-            # ========================================================
-            if not accion_realizada:
-                fuego_objetivo = self.encontrar_fuego_mas_cercano()
-                if fuego_objetivo:
-                    accion_realizada = self.mover_hacia(fuego_objetivo)
-
-            # ========================================================
-            # PRIORIDAD 8: EXPLORAR
-            # ========================================================
-            if not accion_realizada:
-                accion_realizada = self.movimiento_aleatorio()
+                    # PRIORIDAD 6: Combatir fuego
+                    fuego_objetivo = self.encontrar_fuego_mas_cercano()
+                    if fuego_objetivo:
+                        accion_realizada = self.mover_hacia(fuego_objetivo)
+                    else:
+                        # Sin objetivos: moverse aleatorio
+                        accion_realizada = self.movimiento_aleatorio()
 
         # Si ninguna acción cambió nada, gastar energía
         if not accion_realizada:
             self.gastar_energia()
 
-        # Aquí NO hacemos while ni guardamos energía; solo una acción por micro-step
+        # (Opcional) Si quisieras usar energía guardada aquí, podrías tocar self.energia_guardada,
+        # pero en tu lógica original casi siempre termina en 0 al final del turno, así que lo dejamos igual.
+
 
 
 class BomberoAleatorio(Bombero):
@@ -701,46 +494,37 @@ from mesa.space import MultiGrid
 import numpy as np
 
 class Tablero(Model):
-    def __init__(self, width=10, height=8, num_agentes=6, tipo_agente=None, archivo_config=None):
+    def __init__(self, width=8, height=6, num_agentes=6, tipo_agente=None, archivo_config=None):
         super().__init__()
 
         self.grid = MultiGrid(width, height, torus=False)
         self.schedule = []
         self.current_id = 0
-
-        # OFFSET para el edificio (el edificio empieza en (1,1))
-        self.edificio_offset_x = 1
-        self.edificio_offset_y = 1
-        self.edificio_width = 8   # Columnas 1-8 (8 columnas)
-        self.edificio_height = 6  # Filas 1-6 (6 filas)
-
-        # Bases en el PERÍMETRO lateral (columnas 0 y 9)
-        # Posicionadas a la altura del edificio, no en las esquinas del grid
-        self.base_position = [(6, 0), (0, 3), (9, 4), (3, 7)]
-
-        self.cells = np.zeros((width, height))
+        self.base_position = [(0,2), (5,0), (7,3),(2,5)]  # 4 bases
+        self.cells = np.zeros((width, height))  # Ya no usaremos esto para civiles
         self.paredes = {}
         self.puertas = {}
-        self.paredes_dano = {}
+        self.paredes_dano = {}  # Nuevo: daño en paredes
         self.steps = 0
         self.civiles_rescatados = 0
         self.civiles_perdidos = 0
         self.puntos_dano = 0
         self.tipo_agente = tipo_agente
         self.explosiones_generadas = 0
-        # --- FLAGS PARA UNITY / SERVER ---
-        self.done = False          # ¿ya terminó la simulación?
-        self.outcome = None        # "win" o "lose"
-        self.end_reason = ""       # texto humano: por qué terminó
-        self.end_code = ""         # código corto: "lose_civiles", "lose_colapso", etc.
 
-        # Sistema de POI
-        self.posicionesPOI = set()
-        self.poi_sin_revelar = []
-        self.civiles_revelados = {}
-        self.falsas_alarmas_reveladas = set()
 
-        # Estados
+        self.done = False      # Ya terminó la simulación?
+        self.outcome = None    # "win" o "lose"
+        self.end_reason = "" # Texto: "4 civiles heridos", "Edificio colapsado", etc.
+        self.end_code = ""
+
+        # Sistema de POI (Puntos de Interés)
+        self.posicionesPOI = set()  # POI visibles en el tablero (siempre 3)
+        self.poi_sin_revelar = []   # Lista de (pos, tipo) donde tipo='v' o 'f'
+        self.civiles_revelados = {}  # {pos: True} - civiles que ya fueron revelados
+        self.falsas_alarmas_reveladas = set()  # posiciones de falsas alarmas reveladas
+
+        # Estados del fuego/humo/daño
         self.posicionesFuego = set()
         self.posicionesHumo = set()
         self.posicionesDano = set()
@@ -772,71 +556,27 @@ class Tablero(Model):
         # Colocar 3 POI iniciales
         self.colocar_poi_iniciales()
 
-        self.colocar_bomberos_en_bases(num_agentes)
+        for i in range(num_agentes):
+            self.agregar_bombero()
 
         self.datacollector.collect(self)
 
-    def colocar_bomberos_en_bases(self, num_agentes):
-        """
-        Coloca bomberos en las bases según el tipo de agente:
-        - BomberoAleatorio: distribución aleatoria en las bases
-        - Bombero (inteligente): 2 bomberos en 2 bases, 1 en las otras 2
-        """
-        if self.tipo_agente == BomberoAleatorio:
-            # Distribución ALEATORIA en las bases
-            for i in range(num_agentes):
-                base = self.base_position[self.random.randrange(len(self.base_position))]
-                self.agregar_bombero_en_posicion(base)
-        else:
-            # Distribución ESTRATÉGICA: 2-2-1-1 en las bases
-            # Bases: [(7,0), (0,3), (9,4), (3,7)]
-            distribucion = [2, 2, 1, 1]  # 2 bomberos en primeras 2 bases, 1 en las otras
-
-            bomberos_colocados = 0
-            for idx_base, cantidad in enumerate(distribucion):
-                if bomberos_colocados >= num_agentes:
-                    break
-                base = self.base_position[idx_base]
-                for _ in range(cantidad):
-                    if bomberos_colocados >= num_agentes:
-                        break
-                    self.agregar_bombero_en_posicion(base)
-                    bomberos_colocados += 1
-
-    def agregar_bombero_en_posicion(self, posicion):
-        """Agrega un bombero en una posición específica (base)"""
-        try:
-            if self.tipo_agente == BomberoAleatorio:
-                bombero = BomberoAleatorio(self)
-            else:
-                bombero = Bombero(self)
-
-            self.grid.place_agent(bombero, posicion)
-            self.schedule.append(bombero)
-            return True
-        except Exception as e:
-            print(f"Error al agregar bombero en {posicion}: {e}")
-            return False
-
     def agregar_bombero(self):
-        """Agrega un bombero en posición válida DENTRO del edificio"""
+        """Agrega un bombero en posición válida"""
         intentos = 0
         max_intentos = 100
 
         while intentos < max_intentos:
-            # Solo generar posiciones DENTRO del edificio
-            x = self.random.randrange(self.edificio_offset_x,
-                                      self.edificio_offset_x + self.edificio_width)
-            y = self.random.randrange(self.edificio_offset_y,
-                                      self.edificio_offset_y + self.edificio_height)
+            x = self.random.randrange(self.grid.width)
+            y = self.random.randrange(self.grid.height)
 
             if (self.grid.is_cell_empty((x, y)) and
                 (x, y) not in self.base_position and
                 (x, y) not in self.posicionesPOI and
-                (x, y) not in self.posicionesFuego and
-                self.es_celda_edificio(x, y)):
+                (x, y) not in self.posicionesFuego):
 
                 try:
+                    #bombero = self.tipo_agente(self)
                     bombero = Bombero(self)
                     self.grid.place_agent(bombero, (x, y))
                     self.schedule.append(bombero)
@@ -850,29 +590,13 @@ class Tablero(Model):
         print(f"Advertencia: No se pudo colocar bombero después de {max_intentos} intentos")
         return False
 
-
-    def es_celda_edificio(self, x, y):
-        """Verifica si una celda está dentro del edificio (8x6 centrado)"""
-        return (self.edificio_offset_x <= x < self.edificio_offset_x + self.edificio_width and
-                self.edificio_offset_y <= y < self.edificio_offset_y + self.edificio_height)
-
-    def es_celda_exterior(self, x, y):
-        """Verifica si una celda está en el perímetro exterior"""
-        return not self.es_celda_edificio(x, y)
-
-
     def cargar_configuracion(self, archivo):
         with open(archivo, 'r') as f:
             lines = [line.strip() for line in f.readlines() if line.strip()]
 
         idx = 0
 
-        # Offset para trasladar coordenadas del archivo al grid expandido
-        ox = self.edificio_offset_x  # offset en X = 1
-        oy = self.edificio_offset_y  # offset en Y = 1
-
-        # 1. Cargar paredes (6 líneas) - aplicar offset
-        # Las paredes externas YA están definidas en la configuración (los 1s en los bordes)
+        # 1. Cargar paredes (6 líneas)
         for row in range(6):
             if idx >= len(lines):
                 break
@@ -880,23 +604,19 @@ class Tablero(Model):
             for col in range(min(8, len(line_parts))):
                 wall_config = line_parts[col]
                 if len(wall_config) == 4:
-                    # Aplicar offset a las coordenadas
-                    # El formato es: arriba, derecha, abajo, izquierda
-                    self.paredes[(col + ox, row + oy)] = {
+                    self.paredes[(col, row)] = {
                         'arriba': wall_config[0] == '1',
                         'derecha': wall_config[1] == '1',
                         'abajo': wall_config[2] == '1',
                         'izquierda': wall_config[3] == '1'
                     }
-                    self.paredes_dano[(col + ox, row + oy)] = {
+                    # Inicializar daño en paredes
+                    self.paredes_dano[(col, row)] = {
                         'arriba': 0, 'izquierda': 0, 'abajo': 0, 'derecha': 0
                     }
             idx += 1
 
-        # NOTA: NO agregamos paredes adicionales porque las entradas/salidas
-        # ya están definidas en la configuración con 0s donde están las bases
-
-        # 2. Cargar POI (3 líneas iniciales)
+        # 2. Cargar POI (3 líneas iniciales, pero crearemos pool de 15)
         poi_iniciales = []
         for _ in range(3):
             if idx >= len(lines):
@@ -905,45 +625,48 @@ class Tablero(Model):
             if len(parts) >= 3:
                 row = int(parts[0]) - 1
                 col = int(parts[1]) - 1
-                tipo = parts[2]
+                tipo = parts[2]  # 'v' o 'f'
                 if 0 <= row < 6 and 0 <= col < 8:
-                    # Aplicar offset
-                    poi_iniciales.append(((col + ox, row + oy), tipo))
+                    poi_iniciales.append(((col, row), tipo))
             idx += 1
 
+        # Crear pool de 15 POI (10 civiles, 5 falsas alarmas)
+        # Los primeros 3 del archivo + 12 aleatorios
         self.poi_sin_revelar = poi_iniciales.copy()
 
-        # Generar POI adicionales DENTRO del edificio
+        # Generar 12 POI adicionales aleatorios
         civiles_necesarios = 10 - sum(1 for _, tipo in poi_iniciales if tipo == 'v')
         falsas_necesarias = 5 - sum(1 for _, tipo in poi_iniciales if tipo == 'f')
 
         posiciones_ocupadas = {pos for pos, _ in poi_iniciales}
+        # Agregar todas las bases a posiciones ocupadas
         for base_pos in self.base_position:
             posiciones_ocupadas.add(base_pos)
 
-        # Generar civiles DENTRO del edificio
+        # Generar civiles
         for _ in range(civiles_necesarios):
             while True:
-                x = self.random.randrange(ox, ox + self.edificio_width)
-                y = self.random.randrange(oy, oy + self.edificio_height)
+                x = self.random.randrange(self.grid.width)
+                y = self.random.randrange(self.grid.height)
                 if (x, y) not in posiciones_ocupadas and (x, y) not in self.base_position:
                     self.poi_sin_revelar.append(((x, y), 'v'))
                     posiciones_ocupadas.add((x, y))
                     break
 
-        # Generar falsas alarmas DENTRO del edificio
+        # Generar falsas alarmas
         for _ in range(falsas_necesarias):
             while True:
-                x = self.random.randrange(ox, ox + self.edificio_width)
-                y = self.random.randrange(oy, oy + self.edificio_height)
+                x = self.random.randrange(self.grid.width)
+                y = self.random.randrange(self.grid.height)
                 if (x, y) not in posiciones_ocupadas and (x, y) not in self.base_position:
                     self.poi_sin_revelar.append(((x, y), 'f'))
                     posiciones_ocupadas.add((x, y))
                     break
 
+        # Mezclar el pool
         self.random.shuffle(self.poi_sin_revelar)
 
-        # 3. Cargar fuego (10 líneas) - aplicar offset
+        # 3. Cargar posiciones iniciales de fuego (10 líneas)
         for _ in range(10):
             if idx >= len(lines):
                 break
@@ -952,10 +675,10 @@ class Tablero(Model):
                 row = int(parts[0]) - 1
                 col = int(parts[1]) - 1
                 if 0 <= row < 6 and 0 <= col < 8:
-                    self.posicionesFuego.add((col + ox, row + oy))
+                    self.posicionesFuego.add((col, row))
             idx += 1
 
-        # 4. Cargar puertas (8 líneas) - aplicar offset
+        # 4. Cargar puertas (8 líneas)
         for _ in range(8):
             if idx >= len(lines):
                 break
@@ -966,12 +689,11 @@ class Tablero(Model):
                 r2 = int(parts[2]) - 1
                 c2 = int(parts[3]) - 1
                 if (0 <= r1 < 6 and 0 <= c1 < 8 and 0 <= r2 < 6 and 0 <= c2 < 8):
-                    celda1 = (c1 + ox, r1 + oy)
-                    celda2 = (c2 + ox, r2 + oy)
+                    celda1 = (c1, r1)
+                    celda2 = (c2, r2)
                     key = tuple(sorted([celda1, celda2]))
                     self.puertas[key] = {'abierta': False}
             idx += 1
-
 
     def colocar_poi_iniciales(self):
         """Coloca 3 POI en el tablero desde el pool"""
@@ -987,33 +709,31 @@ class Tablero(Model):
                     # Las falsas alarmas no necesitan tracking especial
 
     def generar_nuevo_poi(self):
-        """Genera un nuevo POI en posición válida DENTRO del edificio"""
+        """Genera un nuevo POI en posición válida"""
         if not self.poi_sin_revelar:
-            return
+            return  # No hay más POI disponibles
 
         intentos = 0
         while intentos < 50 and self.poi_sin_revelar:
             pos, tipo = self.poi_sin_revelar.pop(0)
 
-            if (pos not in self.posicionesFuego and
-                pos not in self.posicionesPOI and
-                self.es_celda_edificio(pos[0], pos[1])):
+            # Verificar que no haya fuego
+            if pos not in self.posicionesFuego and pos not in self.posicionesPOI:
                 self.posicionesPOI.add(pos)
                 if tipo == 'v':
                     self.civiles_revelados[pos] = False
                 return
             else:
+                # Si había fuego, generar otro
                 intentos += 1
 
-        # Si no pudimos, generar en posición aleatoria dentro del edificio
+        # Si no pudimos colocar, poner en posición aleatoria válida
         if self.poi_sin_revelar:
             pos, tipo = self.poi_sin_revelar.pop(0)
             intentos = 0
-            ox = self.edificio_offset_x
-            oy = self.edificio_offset_y
             while intentos < 100:
-                x = self.random.randrange(ox, ox + self.edificio_width)
-                y = self.random.randrange(oy, oy + self.edificio_height)
+                x = self.random.randrange(self.grid.width)
+                y = self.random.randrange(self.grid.height)
                 if ((x, y) not in self.posicionesFuego and
                     (x, y) not in self.posicionesPOI and
                     (x, y) not in self.base_position):
@@ -1022,7 +742,6 @@ class Tablero(Model):
                         self.civiles_revelados[(x, y)] = False
                     return
                 intentos += 1
-
 
     def configuracion_default(self):
         for x in range(self.grid.width):
@@ -1037,52 +756,15 @@ class Tablero(Model):
                     'arriba': 0, 'izquierda': 0, 'abajo': 0, 'derecha': 0
                 }
 
-
     def hay_pared_entre(self, celda1, celda2):
         """Verifica si hay pared entre dos celdas (considerando daño)"""
         x1, y1 = celda1
         x2, y2 = celda2
 
-        # Verificar que sean celdas adyacentes
         if abs(x1 - x2) + abs(y1 - y2) != 1:
             return False
 
-        # Determinar cuál celda está en el edificio y cuál afuera (si aplica)
-        es_celda1_edificio = self.es_celda_edificio(x1, y1)
-        es_celda2_edificio = self.es_celda_edificio(x2, y2)
-
-        # Si una está dentro y otra fuera (cruce edificio-exterior)
-        if es_celda1_edificio != es_celda2_edificio:
-            celda_edificio = celda1 if es_celda1_edificio else celda2
-            celda_exterior = celda2 if es_celda1_edificio else celda1
-
-            # Determinar dirección desde el edificio hacia afuera
-            x_ed, y_ed = celda_edificio
-            x_ex, y_ex = celda_exterior
-
-            if x_ex > x_ed:
-                direccion = 'derecha'
-            elif x_ex < x_ed:
-                direccion = 'izquierda'
-            elif y_ex > y_ed:
-                direccion = 'abajo'
-            else:
-                direccion = 'arriba'
-
-            # Verificar si la pared está destruida (2+ daño)
-            if celda_edificio in self.paredes_dano:
-                if self.paredes_dano[celda_edificio].get(direccion, 0) >= 2:
-                    return False  # Pared destruida, se puede pasar
-
-            # Verificar si existe pared en esa dirección (según configuración)
-            if celda_edificio in self.paredes:
-                return self.paredes[celda_edificio].get(direccion, False)
-
-            # Si no hay definición, asumir que hay pared (seguridad)
-            return True
-
-        # Ambas celdas están en el mismo "área" (ambas dentro o ambas fuera)
-        # Determinar dirección desde celda1 hacia celda2
+        direccion = None
         if x2 > x1:
             direccion = 'derecha'
         elif x2 < x1:
@@ -1091,21 +773,12 @@ class Tablero(Model):
             direccion = 'abajo'
         elif y2 < y1:
             direccion = 'arriba'
-        else:
-            return False
 
         # Si la pared tiene 2+ de daño, está destruida
-        if celda1 in self.paredes_dano:
-            if self.paredes_dano[celda1].get(direccion, 0) >= 2:
-                return False
+        if self.paredes_dano.get(celda1, {}).get(direccion, 0) >= 2:
+            return False
 
-        # Verificar si existe la pared según configuración
-        if celda1 in self.paredes:
-            return self.paredes[celda1].get(direccion, False)
-
-        return False
-
-
+        return self.paredes.get(celda1, {}).get(direccion, False)
 
     def hay_puerta_entre(self, celda1, celda2):
         key = tuple(sorted([celda1, celda2]))
@@ -1162,7 +835,7 @@ class Tablero(Model):
             return True, "4 civiles heridos"
         if self.puntos_dano >= 25:
             return True, "Edificio colapsado"
-        return False, None, None
+        return False, None
 
     def entregar_civil_en_base(self):
       """Cuenta un civil como realmente rescatado al llegar a la base."""
@@ -1194,21 +867,33 @@ class Tablero(Model):
         if not (0 <= x2 < self.grid.width and 0 <= y2 < self.grid.height):
             return False
 
-        # Si alguna celda está fuera del edificio, no propagar fuego ahí
-        if not self.es_celda_edificio(x1, y1) or not self.es_celda_edificio(x2, y2):
+        if x2 == x1 and y2 == y1 - 1:
+            dir_origen, dir_destino = 'arriba', 'abajo'
+        elif x2 == x1 and y2 == y1 + 1:
+            dir_origen, dir_destino = 'abajo', 'arriba'
+        elif y2 == y1 and x2 == x1 - 1:
+            dir_origen, dir_destino = 'izquierda', 'derecha'
+        elif y2 == y1 and x2 == x1 + 1:
+            dir_origen, dir_destino = 'derecha', 'izquierda'
+        else:
             return False
 
-        # Verificar si hay pared (considerando daño)
-        if self.hay_pared_entre(origen, destino):
+        # Si pared tiene 2+ daño, está destruida
+        if self.paredes_dano[(x1, y1)].get(dir_origen, 0) >= 2:
+            return True
+
+        # Si hay pared intacta, no se propaga
+        if self.paredes[(x1, y1)].get(dir_origen, False):
+            return False
+        if self.paredes[(x2, y2)].get(dir_destino, False):
             return False
 
-        # Verificar puerta
+        # Si hay puerta
         clave = tuple(sorted([origen, destino]))
         if clave in self.puertas:
             return self.puertas[clave]['abierta']
 
         return True
-
 
     def propagarFuego(self):
         """Propaga fuego con probabilidad del 10%.
@@ -1269,11 +954,10 @@ class Tablero(Model):
         MODIFICADO: Si hay bombero, respawnea en base en lugar de quedar herido
         """
         # Seleccionar UNA celda aleatoria del tablero
-        ox = self.edificio_offset_x
-        oy = self.edificio_offset_y
-        x = self.random.randrange(ox, ox + self.edificio_width)
-        y = self.random.randrange(oy, oy + self.edificio_height)
+        x = self.random.randrange(self.grid.width)
+        y = self.random.randrange(self.grid.height)
         pos = (x, y)
+
         # Aplicar reglas de propagación
         if pos in self.posicionesFuego:
             # Si hay fuego → EXPLOSIÓN
@@ -1335,10 +1019,14 @@ class Tablero(Model):
             if fuegosAdyacentes >= 4:
                 self.explosion(pos)
 
+
     def explosion(self, pos):
-        """
-        Causa daño y elimina el fuego en la celda.
-        CORRECCIÓN: Maneja correctamente las paredes externas del edificio
+        """Causa daño y elimina el fuego en la celda.
+        Reglas nuevas:
+        - Genera fuego en los 4 lados cardinales.
+        - Si en la dirección inmediata hay fuego, 'salta' al siguiente bloque (repite hasta chocar con pared/puerta o casilla sin fuego).
+        - Si se encuentra HUMO en el camino, lo convierte en FUEGO.
+        - Si choca con una PARED (o con el límite), causa 1 de daño; si es PUERTA, se abre y sufre 2 de daño.
         """
         x0, y0 = pos
 
@@ -1357,56 +1045,64 @@ class Tablero(Model):
         }
 
         for lado, (dx, dy) in direcciones.items():
-            cx, cy = x0 + dx, y0 + dy
-            ultimo_valido = (x0, y0)
+            cx, cy = x0 + dx, y0 + dy  # comienzo en la celda adyacente
+            ultimo_valido = (x0, y0)  # por defecto la celda explotada
 
             # seguir avanzando mientras la casilla tenga fuego (salta)
             while True:
                 siguiente = (cx, cy)
 
-                # NUEVO: Si fuera del EDIFICIO → choca con pared exterior
-                if not self.es_celda_edificio(cx, cy):
-                    # Dañar la pared externa del edificio (1 punto)
+                # Si fuera de tablero → choca con pared exterior del último válido
+                if not self.esPosicionValida(siguiente):
+                    # aplicar daño a la pared exterior del ultimo_valido
+                    # cantidad 1 para pared exterior, 2 si puerta (no hay puerta fuera de tablero)
+                    # determinamos el 'pos2' fuera de tablero para calcular lado
                     self.danar_pared_entre(ultimo_valido, siguiente, amount=1)
                     break
 
-                # Si hay pared entre ultimo_valido y siguiente que bloquea:
+                # Si hay pared entre ultimo_valido y siguiente que bloquea la propagación:
                 if not self.puedePropagar(ultimo_valido, siguiente):
+                    # Si hay una puerta entre ultimo_valido y siguiente, la danamos/abrimos:
+                    # detectar si existe puerta entre ultimo_valido y siguiente
                     clave = tuple(sorted([ultimo_valido, siguiente]))
                     if clave in self.puertas:
-                        # Puerta: abrir y aplicar 2 de daño
+                        # abrir y aplicar 2 de daño (regla: puerta sufre 2)
                         self.puertas[clave]['abierta'] = True
+                        # aplicar daño a ambos lados
                         self.danar_pared_entre(ultimo_valido, siguiente, amount=2)
                     else:
-                        # Pared normal: aplicar 1 de daño
+                        # pared normal: aplicar 1 de daño
                         self.danar_pared_entre(ultimo_valido, siguiente, amount=1)
                     break
 
-                # Si la casilla siguiente tiene fuego -> "saltar" sobre ella
+                # Si la casilla siguiente tiene fuego -> "saltar" sobre ella (avanzar)
                 if self.tieneFuegoEn(siguiente):
                     ultimo_valido = siguiente
                     cx += dx
                     cy += dy
                     continue
 
-                # Si la casilla tiene humo -> se convierte en fuego
+                # Si la casilla tiene humo -> se convierte en fuego y terminamos en esa casilla
                 if siguiente in self.posicionesHumo:
                     self.posicionesHumo.discard(siguiente)
                     self.posicionesFuego.add(siguiente)
+                    # marcar daño visual en la celda
                     self.posicionesDano.add(siguiente)
                     break
 
-                # Si la casilla está vacía → ponemos fuego ahí
+                # Si la casilla está vacía o tiene agentes → ponemos fuego ahí
+                # (no saltamos más)
                 self.posicionesFuego.add(siguiente)
+                # marcar daño visual en la celda (por efecto explosión)
                 self.posicionesDano.add(siguiente)
 
-                # Verificar si hay bomberos y hacerlos respawnear
+                # AÑADIDO: Verificar si hay bomberos en la casilla y hacerlos respawnear
                 agents_in_cell = self.grid.get_cell_list_contents([siguiente])
                 for agent in agents_in_cell:
                     if hasattr(agent, 'respawnear_en_base'):
                         agent.respawnear_en_base()
 
-                # Si al crear fuego esta casilla era POI
+                # Si al crear fuego esta casilla era POI -> aplicar consecuencias
                 if siguiente in self.posicionesPOI:
                     if siguiente in self.civiles_revelados:
                         self.civiles_perdidos += 1
@@ -1421,12 +1117,9 @@ class Tablero(Model):
                 break
 
 
-
     def danar_pared_entre(self, pos1, pos2, amount=1):
-        """
-        Aplica 'amount' puntos de daño a la pared entre dos celdas.
-        IMPORTANTE: El daño máximo es 2 (la pared se destruye)
-        CORREGIDO: No suma puntos_dano si la pared ya está destruida
+        """Aplica 'amount' puntos de daño a la pared entre dos celdas.
+        Si hay puerta entre ellas, la abre y aplica daño (amount o 2 si se indica).
         """
         x1, y1 = pos1
         x2, y2 = pos2
@@ -1450,37 +1143,18 @@ class Tablero(Model):
         # Si hay puerta entre pos1 y pos2
         clave = tuple(sorted([pos1, pos2]))
         if clave in self.puertas:
-            # Abrir la puerta y aplicar daño
+            # Abrir la puerta y aplicar daño: puertas sufren 2 de daño según regla del usuario.
             self.puertas[clave]['abierta'] = True
-
-            # Aplicar daño (máximo 2) - CORREGIDO: solo sumar al contador lo que realmente se aplica
-            if pos1 in self.paredes_dano:
-                dano_actual = self.paredes_dano[pos1].get(lado, 0)
-                if dano_actual < 2:  # Solo dañar si no está destruida
-                    dano_a_aplicar = min(amount, 2 - dano_actual)  # No exceder 2
-                    self.paredes_dano[pos1][lado] = dano_actual + dano_a_aplicar
-                    self.puntos_dano += dano_a_aplicar  # Solo sumar lo realmente aplicado
-
-            # También a la celda opuesta si está en el edificio
-            if self.es_celda_edificio(x2, y2) and pos2 in self.paredes_dano:
-                dano_actual = self.paredes_dano[pos2].get(lado_opuesto, 0)
-                if dano_actual < 2:
-                    self.paredes_dano[pos2][lado_opuesto] = min(dano_actual + amount, 2)
+            # Aplicar daño en ambos lados de la puerta (para simular daño a ambos muros)
+            self.paredes_dano[(x1, y1)][lado] = self.paredes_dano[(x1, y1)].get(lado, 0) + amount
+            # también a la celda opuesta
+            self.paredes_dano[(x2, y2)][lado_opuesto] = self.paredes_dano[(x2, y2)].get(lado_opuesto, 0) + amount
             return
 
-        # Pared "normal": aplicar daño en el lado correspondiente
-        if self.es_celda_edificio(x1, y1) and pos1 in self.paredes_dano:
-            dano_actual = self.paredes_dano[pos1].get(lado, 0)
-            if dano_actual < 2:  # Solo dañar si no está destruida
-                dano_a_aplicar = min(amount, 2 - dano_actual)
-                self.paredes_dano[pos1][lado] = dano_actual + dano_a_aplicar
-                self.puntos_dano += dano_a_aplicar
+        # Pared "normal": aplicar damage en el lado correspondiente de pos1
+        if (x1, y1) in self.paredes_dano:
+            self.paredes_dano[(x1, y1)][lado] = self.paredes_dano[(x1, y1)].get(lado, 0) + amount
 
-        # Si pos2 también está en el edificio, dañar el lado opuesto (sin sumar al contador)
-        if self.es_celda_edificio(x2, y2) and pos2 in self.paredes_dano:
-            dano_actual = self.paredes_dano[pos2].get(lado_opuesto, 0)
-            if dano_actual < 2:
-                self.paredes_dano[pos2][lado_opuesto] = min(dano_actual + amount, 2)
 
 
 
@@ -1492,9 +1166,9 @@ class Tablero(Model):
 
 
     def step(self):
-        """Ejecuta un paso de la simulación (un 'step' por Space en Unity)."""
+        """Ejecuta un paso de la simulación"""
 
-        # Si ya terminó, no hagas nada más
+        # Si ya terminó, no sigas avanzando
         if self.done:
             return
 
@@ -1504,26 +1178,34 @@ class Tablero(Model):
             self.generar_fuego()
 
         # 2. Verificar derrota
-        terminado, razon, code = self.verificar_game_over()
+        terminado, razon = self.verificar_game_over()
         if terminado:
             print(f"GAME OVER: {razon}")
             self.done = True
             self.outcome = "lose"
             self.end_reason = razon
-            self.end_code = code
-            self.running = False
-        else:
-            # 2.5 Verificar victoria (7 civiles rescatados)
-            if self.is_all_collected():
-                razon = "Se rescataron 7 civiles"
-                print(f"VICTORIA: {razon}")
-                self.done = True
-                self.outcome = "win"
-                self.end_reason = razon
-                self.end_code = "win_civiles"
-                self.running = False
 
-        # 3. Recolectar datos (aunque haya ganado/perdido en este step)
+            if self.civiles_perdidos >= 4:
+                self.end_code = "lose_civiles"
+            elif self.puntos_dano >= 25:
+                self.end_code = "lose_colapso"
+            else:
+                self.end_code = "lose_otro"
+
+            self.running = False
+            return
+
+        # 2.5 Verificar victoria (7 civiles rescatados)
+        if self.is_all_collected():
+            print("VICTORIA: Se rescataron 7 civiles")
+            self.done = True
+            self.outcome = "win"
+            self.end_reason = "Se rescataron al menos 7 civiles"
+            self.end_code = "win_civiles"
+            self.running = False
+            return
+
+        # 3. Recolectar datos
         self.datacollector.collect(self)
 
         # 4. Contador de pasos
@@ -1546,30 +1228,39 @@ class Tablero(Model):
             if hasattr(agent, "step_micro"):
                 agent.step_micro()
             else:
-                agent.step()  # fallback por si algún agente no se actualizó
+                agent.step()  # fallback, por si hay agentes viejos
 
         # 1.5 Generar fuego/humo una vez por micro paso
         self.generar_fuego()
 
         # 2. Verificar condiciones de derrota
-        terminado, razon, code = self.verificar_game_over()
+        terminado, razon = self.verificar_game_over()
         if terminado:
             print(f"GAME OVER: {razon}")
+            # Si ya agregaste done/outcome/end_code/end_reason, márcalos aquí:
             self.done = True
             self.outcome = "lose"
             self.end_reason = razon
-            self.end_code = code if code else "lose_other"
+
+            if "4 civiles" in razon:
+                self.end_code = "lose_civiles"
+            elif "Edificio colapsado" in razon:
+                self.end_code = "lose_colapso"
+            else:
+                self.end_code = "lose_other"
+
             self.running = False
-        else:
-            # 2.5 Verificar condición de victoria
-            if hasattr(self, "is_all_collected") and self.is_all_collected():
-                razon = "Se rescataron 7 civiles"
-                print(f"VICTORIA: {razon}")
-                self.done = True
-                self.outcome = "win"
-                self.end_reason = razon
-                self.end_code = "win_civiles"
-                self.running = False
+            return
+
+        # 2.5 Verificar condición de victoria (si ya tienes is_all_collected)
+        if hasattr(self, "is_all_collected") and self.is_all_collected():
+            print("VICTORIA: Se rescataron 7 civiles")
+            self.done = True
+            self.outcome = "win"
+            self.end_reason = "Se rescataron al menos 7 civiles"
+            self.end_code = "win_civiles"
+            self.running = False
+            return
 
         # 3. Recolectar datos (si usas datacollector)
         if hasattr(self, "datacollector"):
@@ -1613,148 +1304,124 @@ def get_grid(model):
 
     return grid
 
+
 def visualizar_tablero(model, ax=None, step_num=0):
-    """Visualiza el tablero 10x8 con edificio centrado"""
+    """
+    Visualiza el estado actual del tablero
+    """
     if ax is None:
-        fig, ax = plt.subplots(figsize=(14, 10))
+        fig, ax = plt.subplots(figsize=(12, 8))
     else:
         ax.clear()
 
-    # Dibujar todas las celdas
     for x in range(model.grid.width):
         for y in range(model.grid.height):
-            es_edificio = model.es_celda_edificio(x, y)
+            color = "white"
 
-            if not es_edificio:
-                # Perímetro exterior
-                if (x, y) in model.base_position:
-                    color = "yellow"
-                else:
-                    color = "#d3d3d3"  # Gris claro para el exterior
-            else:
-                # Interior del edificio
-                if (x, y) in model.posicionesFuego:
-                    color = "orange"
-                elif (x, y) in model.posicionesHumo:
-                    color = "gray"
-                elif (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
-                    color = "lightblue"
-                elif (x, y) in model.posicionesPOI:
-                    color = "lightgreen"
-                else:
-                    color = "white"
+            # BASES (pueden ser múltiples)
+            if (x, y) in model.base_position:
+                color = "yellow"
+            # FUEGO
+            elif (x, y) in model.posicionesFuego:
+                color = "orange"
+            # HUMO
+            elif (x, y) in model.posicionesHumo:
+                color = "gray"
+            # CIVIL REVELADO
+            elif (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
+                color = "lightblue"
+            # POI (sin revelar)
+            elif (x, y) in model.posicionesPOI:
+                color = "lightgreen"
 
             rect = patches.Rectangle((x, y), 1, 1,
                                      linewidth=0.5,
-                                     edgecolor="darkgray",
+                                     edgecolor="gray",
                                      facecolor=color,
-                                     alpha=0.8)
+                                     alpha=0.7)
             ax.add_patch(rect)
 
-            # Textos
-            if (x, y) in model.base_position:
-                ax.text(x+0.5, y+0.5, "BASE", ha="center", va="center",
-                        fontsize=8, fontweight="bold", color="black")
-            elif (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
+            # Texto civil revelado
+            if (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
                 ax.text(x+0.5, y+0.5, "C", ha="center", va="center",
                         fontsize=12, fontweight="bold", color="blue")
+
+            # Texto POI
             elif (x, y) in model.posicionesPOI:
                 ax.text(x+0.5, y+0.5, "?", ha="center", va="center",
-                        fontsize=14, fontweight="bold", color="darkgreen")
+                        fontsize=14, fontweight="bold", color="green")
 
-    # Dibujar borde grueso del edificio
-    edificio_rect = patches.Rectangle(
-        (model.edificio_offset_x, model.edificio_offset_y),
-        model.edificio_width, model.edificio_height,
-        linewidth=4, edgecolor='black', facecolor='none'
-    )
-    ax.add_patch(edificio_rect)
+            # Texto base (múltiples bases)
+            if (x, y) in model.base_position:
+                ax.text(x+0.5, y+0.5, "BASE",
+                        ha="center", va="center",
+                        fontsize=10, fontweight="bold")
 
-    # BOMBEROS (con números)
-    for idx, agent in enumerate(model.schedule):
+    # BOMBEROS
+    for agent in model.schedule:
         x, y = agent.pos
-        color_bombero = 'red'
-        circle = patches.Circle((x+0.5, y+0.5), 0.35,
-                                color=color_bombero, alpha=0.9)
+
+        # Color diferente si está herido
+        color_bombero = 'orange' if agent.herido else 'red'
+        circle = patches.Circle((x+0.5, y+0.5), 0.3,
+                                color=color_bombero, alpha=0.8)
         ax.add_patch(circle)
 
-        # Texto del bombero
-        if agent.tieneCivil:
-            texto = f"B{idx+1}+C"
-            fontsize = 7
-        else:
-            texto = f"B{idx+1}"
-            fontsize = 9
+        texto = "B+C" if agent.tieneCivil else "B"
+        if agent.herido:
+            texto = "B!"  # Bombero herido
 
-        ax.text(x+0.5, y+0.5, texto, ha="center", va="center",
-                fontsize=fontsize, color="white", fontweight="bold")
+        ax.text(x+0.5, y+0.5, texto,
+                ha="center", va="center",
+                fontsize=10, color="white",
+                fontweight="bold")
 
-    # PAREDES (solo las del edificio)
-    for (px, py), paredes in model.paredes.items():
-        if not model.es_celda_edificio(px, py):
-            continue
+    # PAREDES (con indicación de daño)
+    for (x, y), paredes in model.paredes.items():
+        danos = model.paredes_dano.get((x, y), {})
 
-        danos = model.paredes_dano.get((px, py), {})
-
-        for direccion, tiene_pared in paredes.items():
-            if not tiene_pared:
-                continue
-
-            dano = danos.get(direccion, 0)
-            if dano >= 2:
-                continue  # Pared destruida, no dibujar
-
-            grosor = 3 if dano == 0 else 2
-            color_pared = 'black' if dano == 0 else 'red'
-
-            if direccion == 'arriba':
-                ax.plot([px, px+1], [py, py], color=color_pared, linewidth=grosor)
-            elif direccion == 'abajo':
-                ax.plot([px, px+1], [py+1, py+1], color=color_pared, linewidth=grosor)
-            elif direccion == 'izquierda':
-                ax.plot([px, px], [py, py+1], color=color_pared, linewidth=grosor)
-            elif direccion == 'derecha':
-                ax.plot([px+1, px+1], [py, py+1], color=color_pared, linewidth=grosor)
+        if paredes.get("arriba"):
+            grosor = 3 if danos.get("arriba", 0) < 2 else 1
+            estilo = '-' if danos.get("arriba", 0) < 2 else ':'
+            ax.plot([x, x+1], [y, y], "k"+estilo, linewidth=grosor)
+        if paredes.get("abajo"):
+            grosor = 3 if danos.get("abajo", 0) < 2 else 1
+            estilo = '-' if danos.get("abajo", 0) < 2 else ':'
+            ax.plot([x, x+1], [y+1, y+1], "k"+estilo, linewidth=grosor)
+        if paredes.get("izquierda"):
+            grosor = 3 if danos.get("izquierda", 0) < 2 else 1
+            estilo = '-' if danos.get("izquierda", 0) < 2 else ':'
+            ax.plot([x, x], [y, y+1], "k"+estilo, linewidth=grosor)
+        if paredes.get("derecha"):
+            grosor = 3 if danos.get("derecha", 0) < 2 else 1
+            estilo = '-' if danos.get("derecha", 0) < 2 else ':'
+            ax.plot([x+1, x+1], [y, y+1], "k"+estilo, linewidth=grosor)
 
     # PUERTAS
-    for (celda1, celda2), info in model.puertas.items():
+    for (celda1, celda2), puerta_info in model.puertas.items():
         x1, y1 = celda1
         x2, y2 = celda2
-        mx = (x1 + x2) / 2 + 0.5
-        my = (y1 + y2) / 2 + 0.5
-        color_puerta = 'saddlebrown' if not info['abierta'] else 'lime'
-        marker = 's' if not info['abierta'] else 'o'
-        ax.plot(mx, my, marker, color=color_puerta, markersize=10)
 
-    # Configuración de ejes
+        color = "green" if puerta_info["abierta"] else "brown"
+        estilo = "--" if puerta_info["abierta"] else "-"
+        grosor = 4 if puerta_info["abierta"] else 5
+
+        if x1 == x2:  # horizontal
+            y_p = (y1 + y2) / 2 + 0.5
+            ax.plot([x1, x1+1], [y_p, y_p], color=color, linestyle=estilo, linewidth=grosor)
+        else:         # vertical
+            x_p = (x1 + x2) / 2 + 0.5
+            ax.plot([x_p, x_p], [y1, y1+1], color=color, linestyle=estilo, linewidth=grosor)
+
     ax.set_xlim(0, model.grid.width)
     ax.set_ylim(0, model.grid.height)
     ax.set_aspect("equal")
     ax.invert_yaxis()
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_title(f"Flash Point: Fire Rescue - Frame {step_num}")
+    ax.set_title(f"Flash Point - Step {step_num}")
 
-    # Grid lines
-    ax.set_xticks(range(model.grid.width + 1))
-    ax.set_yticks(range(model.grid.height + 1))
-    ax.grid(True, alpha=0.3)
-
-    # Leyenda
-    from matplotlib.lines import Line2D
-    legend_elements = [
-        patches.Patch(facecolor='yellow', edgecolor='black', label='Base'),
-        patches.Patch(facecolor='#d3d3d3', edgecolor='black', label='Exterior'),
-        patches.Patch(facecolor='white', edgecolor='black', label='Edificio'),
-        patches.Patch(facecolor='orange', edgecolor='black', label='Fuego'),
-        patches.Patch(facecolor='gray', edgecolor='black', label='Humo'),
-        patches.Patch(facecolor='lightgreen', edgecolor='black', label='POI (?)'),
-        patches.Patch(facecolor='lightblue', edgecolor='black', label='Civil'),
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=10, label='Bombero'),
-    ]
-    ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.01, 1))
-
-    plt.tight_layout()
+    if ax is None:
+        plt.tight_layout()
+        plt.show()
 
 import copy
 import pandas as pd
@@ -1764,7 +1431,7 @@ def ejecutar_simulacion_con_animacion(tipo_agente, max_steps=100, archivo_config
     """
     Ejecuta simulación guardando UN frame por step (más eficiente)
     """
-    model = Tablero(width=10, height=8, num_agentes=6,
+    model = Tablero(width=8, height=6, num_agentes=6,
                    tipo_agente=tipo_agente, archivo_config=archivo_config)
 
     history_models = []
@@ -1822,7 +1489,7 @@ def ejecutar_simulacion_detallada(tipo_agente, max_steps=30, archivo_config='con
     Si frames_por_agente=True, guarda frame por movimiento (muchos frames)
     Si frames_por_agente=False, guarda frame por step (menos frames)
     """
-    model = Tablero(width=10, height=8, num_agentes=6,
+    model = Tablero(width=8, height=6, num_agentes=6,
                    tipo_agente=tipo_agente, archivo_config=archivo_config)
 
     history_models = []
@@ -1880,7 +1547,7 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
 
         try:
             # Estrategia aleatoria
-            model_random = Tablero(width=10, height=8, num_agentes=6,
+            model_random = Tablero(width=8, height=6, num_agentes=6,
                                   tipo_agente=BomberoAleatorio,
                                   archivo_config=archivo_config)
 
@@ -1890,21 +1557,17 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
                 if model_random.is_all_collected() or game_over:
                     break
 
-            # CORREGIDO: Determinar resultado correctamente
+            # MODIFICADO: Determinar resultado
             game_over, razon = model_random.verificar_game_over()
-            victoria = model_random.civiles_rescatados >= 7  # Victoria = 7+ civiles rescatados
-            derrota = game_over  # Derrota = game over (4 civiles perdidos o 25+ daño)
-
-            # Si no es victoria ni derrota, es empate/inconcluso
-            empate = not victoria and not derrota
+            victoria = model_random.is_all_collected()
+            derrota = game_over
 
             resultados_aleatorio.append({
                 'civiles_rescatados': model_random.civiles_rescatados,
                 'civiles_perdidos': model_random.civiles_perdidos,
                 'victoria': victoria,
-                'derrota': derrota,
-                'empate': empate,  # AÑADIDO
-                'razon_derrota': razon if derrota else None,
+                'derrota': derrota,  # AÑADIDO
+                'razon_derrota': razon if derrota else None,  # AÑADIDO
                 'steps': model_random.steps,
                 'puertas_abiertas': sum(1 for p in model_random.puertas.values() if p['abierta']),
                 'puntos_dano': model_random.puntos_dano,
@@ -1917,8 +1580,7 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
             print(f"    Error en simulación aleatoria {i+1}: {e}")
             resultados_aleatorio.append({
                 'civiles_rescatados': 0, 'civiles_perdidos': 4,
-                'victoria': False, 'derrota': True, 'empate': False,
-                'razon_derrota': 'Error',
+                'victoria': False, 'derrota': True, 'razon_derrota': 'Error',
                 'steps': 100, 'puertas_abiertas': 0,
                 'puntos_dano': 25, 'fuegos_apagados': 0, 'humos_apagados': 0,
                 'explosiones_generadas': 0
@@ -1926,7 +1588,7 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
 
         try:
             # Estrategia inteligente
-            model_smart = Tablero(width=10, height=8, num_agentes=6,
+            model_smart = Tablero(width=8, height=6, num_agentes=6,
                                 tipo_agente=Bombero,
                                 archivo_config=archivo_config)
 
@@ -1936,21 +1598,17 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
                 if model_smart.is_all_collected() or game_over:
                     break
 
-            # CORREGIDO: Determinar resultado correctamente
+            # MODIFICADO: Determinar resultado
             game_over, razon = model_smart.verificar_game_over()
-            victoria = model_smart.civiles_rescatados >= 7  # Victoria = 7+ civiles rescatados
-            derrota = game_over  # Derrota = game over
-
-            # Si no es victoria ni derrota, es empate/inconcluso
-            empate = not victoria and not derrota
+            victoria = model_smart.is_all_collected()
+            derrota = game_over
 
             resultados_inteligente.append({
                 'civiles_rescatados': model_smart.civiles_rescatados,
                 'civiles_perdidos': model_smart.civiles_perdidos,
                 'victoria': victoria,
-                'derrota': derrota,
-                'empate': empate,  # AÑADIDO
-                'razon_derrota': razon if derrota else None,
+                'derrota': derrota,  # AÑADIDO
+                'razon_derrota': razon if derrota else None,  # AÑADIDO
                 'steps': model_smart.steps,
                 'puertas_abiertas': sum(1 for p in model_smart.puertas.values() if p['abierta']),
                 'puntos_dano': model_smart.puntos_dano,
@@ -1963,8 +1621,7 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
             print(f"    Error en simulación inteligente {i+1}: {e}")
             resultados_inteligente.append({
                 'civiles_rescatados': 0, 'civiles_perdidos': 4,
-                'victoria': False, 'derrota': True, 'empate': False,
-                'razon_derrota': 'Error',
+                'victoria': False, 'derrota': True, 'razon_derrota': 'Error',
                 'steps': 100, 'puertas_abiertas': 0,
                 'puntos_dano': 25, 'fuegos_apagados': 0, 'humos_apagados': 0,
                 'explosiones_generadas': 0
@@ -1977,33 +1634,6 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
     if df_aleatorio.empty or df_inteligente.empty:
         print("Error: DataFrames vacíos")
         return df_aleatorio, df_inteligente
-
-    # AÑADIDO: Resumen claro de resultados
-    print("\n" + "="*60)
-    print("              RESUMEN DE RESULTADOS")
-    print("="*60)
-
-    v_ale = df_aleatorio['victoria'].sum()
-    d_ale = df_aleatorio['derrota'].sum()
-    e_ale = len(df_aleatorio) - v_ale - d_ale
-
-    v_int = df_inteligente['victoria'].sum()
-    d_int = df_inteligente['derrota'].sum()
-    e_int = len(df_inteligente) - v_int - d_int
-
-    print(f"\n📊 ALEATORIO ({num_simulaciones} simulaciones):")
-    print(f"   ✅ Victorias: {v_ale} ({100*v_ale/num_simulaciones:.1f}%)")
-    print(f"   ❌ Derrotas:  {d_ale} ({100*d_ale/num_simulaciones:.1f}%)")
-    print(f"   ⚪ Empates:   {e_ale} ({100*e_ale/num_simulaciones:.1f}%)")
-    print(f"   📈 Civiles rescatados promedio: {df_aleatorio['civiles_rescatados'].mean():.2f}")
-
-    print(f"\n🤖 INTELIGENTE ({num_simulaciones} simulaciones):")
-    print(f"   ✅ Victorias: {v_int} ({100*v_int/num_simulaciones:.1f}%)")
-    print(f"   ❌ Derrotas:  {d_int} ({100*d_int/num_simulaciones:.1f}%)")
-    print(f"   ⚪ Empates:   {e_int} ({100*e_int/num_simulaciones:.1f}%)")
-    print(f"   📈 Civiles rescatados promedio: {df_inteligente['civiles_rescatados'].mean():.2f}")
-
-    print("\n" + "="*60)
 
     # Mostrar estadísticas
     print("\n=== RESULTADOS COMPARATIVOS ===")
@@ -2032,27 +1662,23 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
     axes[0, 1].set_ylabel('Cantidad')
     axes[0, 1].grid(True, alpha=0.3)
 
-    # CORREGIDO: Victorias, Derrotas Y Empates (gráfica de barras agrupadas)
+    # MODIFICADO: Victorias Y Derrotas (gráfica de barras agrupadas)
     victorias_aleatorio = df_aleatorio['victoria'].sum()
     victorias_inteligente = df_inteligente['victoria'].sum()
     derrotas_aleatorio = df_aleatorio['derrota'].sum()
     derrotas_inteligente = df_inteligente['derrota'].sum()
-    empates_aleatorio = df_aleatorio['empate'].sum() if 'empate' in df_aleatorio.columns else num_simulaciones - victorias_aleatorio - derrotas_aleatorio
-    empates_inteligente = df_inteligente['empate'].sum() if 'empate' in df_inteligente.columns else num_simulaciones - victorias_inteligente - derrotas_inteligente
 
     x = np.arange(2)  # Aleatorio, Inteligente
-    width = 0.25
+    width = 0.35
 
-    bars1 = axes[0, 2].bar(x - width, [victorias_aleatorio, victorias_inteligente],
+    bars1 = axes[0, 2].bar(x - width/2, [victorias_aleatorio, victorias_inteligente],
                            width, label='Victorias', color='green', alpha=0.7)
-    bars2 = axes[0, 2].bar(x, [derrotas_aleatorio, derrotas_inteligente],
+    bars2 = axes[0, 2].bar(x + width/2, [derrotas_aleatorio, derrotas_inteligente],
                            width, label='Derrotas', color='red', alpha=0.7)
-    bars3 = axes[0, 2].bar(x + width, [empates_aleatorio, empates_inteligente],
-                           width, label='Empates', color='gray', alpha=0.7)
 
     axes[0, 2].set_xticks(x)
     axes[0, 2].set_xticklabels(['Aleatorio', 'Inteligente'])
-    axes[0, 2].set_title('Victorias vs Derrotas vs Empates')
+    axes[0, 2].set_title('Victorias vs Derrotas')
     axes[0, 2].set_ylabel('Cantidad')
     axes[0, 2].legend()
     axes[0, 2].grid(True, alpha=0.3, axis='y')
@@ -2063,19 +1689,13 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
         axes[0, 2].annotate(f'{int(height)}',
                            xy=(bar.get_x() + bar.get_width() / 2, height),
                            xytext=(0, 3), textcoords="offset points",
-                           ha='center', va='bottom', fontsize=9)
+                           ha='center', va='bottom', fontsize=10)
     for bar in bars2:
         height = bar.get_height()
         axes[0, 2].annotate(f'{int(height)}',
                            xy=(bar.get_x() + bar.get_width() / 2, height),
                            xytext=(0, 3), textcoords="offset points",
-                           ha='center', va='bottom', fontsize=9)
-    for bar in bars3:
-        height = bar.get_height()
-        axes[0, 2].annotate(f'{int(height)}',
-                           xy=(bar.get_x() + bar.get_width() / 2, height),
-                           xytext=(0, 3), textcoords="offset points",
-                           ha='center', va='bottom', fontsize=9)
+                           ha='center', va='bottom', fontsize=10)
 
     # Fila 2
     # Pasos necesarios
@@ -2190,6 +1810,13 @@ def comparar_estrategias(archivo_config='config.txt', num_simulaciones=10):
     return df_aleatorio, df_inteligente
 
 
+# ============================================
+# CELDA 5: CORRECCIÓN EN BomberoAleatorio
+# Quitar la lógica de "herido" ya que ahora respawnea
+# ============================================
+"""
+INSTRUCCIONES: REEMPLAZAR el método step() de BomberoAleatorio por este:
+"""
 
 class BomberoAleatorio(Bombero):
     def step(self):
@@ -2237,10 +1864,11 @@ import matplotlib.animation as animation
 import matplotlib.patches as patches
 from matplotlib.lines import Line2D
 
-
 def animar_simulacion(history_models, interval=200):
-    """Crea animación de la simulación"""
-    fig, ax = plt.subplots(figsize=(14, 10))
+    """
+    Crea animación básica de la simulación (un frame por step)
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
 
     def update(frame):
         ax.clear()
@@ -2249,100 +1877,145 @@ def animar_simulacion(history_models, interval=200):
         # Dibujar celdas
         for x in range(model.grid.width):
             for y in range(model.grid.height):
-                es_edificio = model.es_celda_edificio(x, y)
+                color = 'white'
 
-                if not es_edificio:
-                    if (x, y) in model.base_position:
-                        color = 'yellow'
-                    else:
-                        color = '#d3d3d3'
-                else:
-                    if (x, y) in model.posicionesFuego:
-                        color = 'orange'
-                    elif (x, y) in model.posicionesHumo:
-                        color = 'gray'
-                    elif (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
-                        color = 'lightblue'
-                    elif (x, y) in model.posicionesPOI:
-                        color = 'lightgreen'
-                    else:
-                        color = 'white'
+                # BASES (múltiples)
+                if (x, y) in model.base_position:
+                    color = 'yellow'
+                # FUEGO
+                elif (x, y) in model.posicionesFuego:
+                    color = 'orange'
+                # HUMO
+                elif (x, y) in model.posicionesHumo:
+                    color = 'gray'
+                # CIVIL REVELADO
+                elif (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
+                    color = 'lightblue'
+                # POI (sin revelar)
+                elif (x, y) in model.posicionesPOI:
+                    color = 'lightgreen'
 
-                rect = patches.Rectangle((x, y), 1, 1, linewidth=0.5,
-                                         edgecolor='darkgray', facecolor=color, alpha=0.8)
+                rect = patches.Rectangle((x, y), 1, 1,
+                                        linewidth=0.5,
+                                        edgecolor='gray',
+                                        facecolor=color,
+                                        alpha=0.7)
                 ax.add_patch(rect)
 
-                # Textos
-                if (x, y) in model.base_position:
-                    ax.text(x+0.5, y+0.5, "BASE", ha="center", va="center",
-                            fontsize=7, fontweight="bold")
-                elif (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
-                    ax.text(x+0.5, y+0.5, "C", ha="center", va="center",
-                            fontsize=12, fontweight="bold", color="blue")
+                # Texto civil revelado
+                if (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
+                    ax.text(x+0.5, y+0.5, 'C',
+                           ha='center', va='center',
+                           fontsize=12, fontweight='bold', color='blue')
+
+                # Texto POI
                 elif (x, y) in model.posicionesPOI:
-                    ax.text(x+0.5, y+0.5, "?", ha="center", va="center",
-                            fontsize=14, fontweight="bold", color="darkgreen")
+                    ax.text(x+0.5, y+0.5, '?',
+                           ha='center', va='center',
+                           fontsize=14, fontweight='bold', color='green')
 
-        # Borde del edificio
-        edificio_rect = patches.Rectangle(
-            (model.edificio_offset_x, model.edificio_offset_y),
-            model.edificio_width, model.edificio_height,
-            linewidth=4, edgecolor='black', facecolor='none'
-        )
-        ax.add_patch(edificio_rect)
+                # Texto base (múltiples bases)
+                if (x, y) in model.base_position:
+                    ax.text(x+0.5, y+0.5, 'BASE',
+                           ha='center', va='center',
+                           fontsize=10, fontweight='bold')
 
-        # Bomberos
-        for idx, agent in enumerate(model.schedule):
+        # Dibujar bomberos
+        for i, agent in enumerate(model.schedule):
             x, y = agent.pos
-            circle = patches.Circle((x+0.5, y+0.5), 0.35, color='red', alpha=0.9)
+
+            # Color diferente si está herido
+            color_bombero = 'orange' if agent.herido else 'red'
+            circle = patches.Circle((x+0.5, y+0.5), 0.3,
+                                   color=color_bombero, alpha=0.8)
             ax.add_patch(circle)
-            texto = f"B{idx+1}+C" if agent.tieneCivil else f"B{idx+1}"
-            ax.text(x+0.5, y+0.5, texto, ha="center", va="center",
-                    fontsize=8, color="white", fontweight="bold")
 
-        # Paredes
-        for (px, py), paredes in model.paredes.items():
-            if not model.es_celda_edificio(px, py):
-                continue
-            danos = model.paredes_dano.get((px, py), {})
+            texto = f"B{i+1}"
+            if agent.herido:
+                texto = f"B{i+1}!"
+            elif agent.tieneCivil:
+                texto += "+C"
 
-            for dir, tiene in paredes.items():
-                if not tiene or danos.get(dir, 0) >= 2:
-                    continue
-                grosor = 3 if danos.get(dir, 0) == 0 else 2
-                color = 'black' if danos.get(dir, 0) == 0 else 'red'
+            ax.text(x+0.5, y+0.5, texto,
+                   ha='center', va='center',
+                   fontsize=8 if (agent.tieneCivil or agent.herido) else 10,
+                   color='white', fontweight='bold')
 
-                if dir == 'arriba':
-                    ax.plot([px, px+1], [py, py], color=color, linewidth=grosor)
-                elif dir == 'abajo':
-                    ax.plot([px, px+1], [py+1, py+1], color=color, linewidth=grosor)
-                elif dir == 'izquierda':
-                    ax.plot([px, px], [py, py+1], color=color, linewidth=grosor)
-                elif dir == 'derecha':
-                    ax.plot([px+1, px+1], [py, py+1], color=color, linewidth=grosor)
+        # Dibujar paredes (con daño)
+        for (x, y), paredes in model.paredes.items():
+            danos = model.paredes_dano.get((x, y), {})
 
-        # Puertas
-        for (c1, c2), info in model.puertas.items():
-            mx = (c1[0] + c2[0]) / 2 + 0.5
-            my = (c1[1] + c2[1]) / 2 + 0.5
-            color = 'saddlebrown' if not info['abierta'] else 'lime'
-            ax.plot(mx, my, 's' if not info['abierta'] else 'o',
-                   color=color, markersize=8)
+            if paredes.get('arriba', False):
+                damage = danos.get('arriba', 0)
+                grosor = 1 if damage >= 2 else 3
+                estilo = '--' if damage >= 2 else '-'
+                color_pared = 'silver' if damage >= 2 else 'k'
+                ax.plot([x, x+1], [y, y], color=color_pared, linestyle=estilo, linewidth=grosor)
+            if paredes.get('abajo', False):
+                damage = danos.get('abajo', 0)
+                grosor = 1 if damage >= 2 else 3
+                estilo = '--' if damage >= 2 else '-'
+                color_pared = 'silver' if damage >= 2 else 'k'
+                ax.plot([x, x+1], [y+1, y+1], color=color_pared, linestyle=estilo, linewidth=grosor)
+            if paredes.get('izquierda', False):
+                damage = danos.get('izquierda', 0)
+                grosor = 1 if damage >= 2 else 3
+                estilo = '--' if damage >= 2 else '-'
+                color_pared = 'silver' if damage >= 2 else 'k'
+                ax.plot([x, x], [y, y+1], color=color_pared, linestyle=estilo, linewidth=grosor)
+            if paredes.get('derecha', False):
+                damage = danos.get('derecha', 0)
+                grosor = 1 if damage >= 2 else 3
+                estilo = '--' if damage >= 2 else '-'
+                color_pared = 'silver' if damage >= 2 else 'k'
+                ax.plot([x+1, x+1], [y, y+1], color=color_pared, linestyle=estilo, linewidth=grosor)
 
+        # Dibujar puertas
+        for (celda1, celda2), puerta_info in model.puertas.items():
+            x1, y1 = celda1
+            x2, y2 = celda2
+
+            if puerta_info['abierta']:
+                color = 'green'
+                estilo = '--'
+                grosor = 4
+            else:
+                color = 'brown'
+                estilo = '-'
+                grosor = 5
+
+            if x1 == x2:
+                y_puerta = (y1 + y2) / 2 + 0.5
+                ax.plot([x1, x1+1], [y_puerta, y_puerta],
+                       color=color, linestyle=estilo, linewidth=grosor)
+            else:
+                x_puerta = (x1 + x2) / 2 + 0.5
+                ax.plot([x_puerta, x_puerta], [y1, y1+1],
+                       color=color, linestyle=estilo, linewidth=grosor)
+
+        # Configuración
         ax.set_xlim(0, model.grid.width)
         ax.set_ylim(0, model.grid.height)
-        ax.set_aspect("equal")
+        ax.set_aspect('equal')
         ax.invert_yaxis()
-        ax.set_title(f"Flash Point: Fire Rescue - Frame {frame}/{len(history_models)-1}")
         ax.set_xticks(range(model.grid.width + 1))
         ax.set_yticks(range(model.grid.height + 1))
-        ax.grid(True, alpha=0.3)
+        ax.grid(True, alpha=0.2, linestyle=':')
 
-    anim = animation.FuncAnimation(fig, update, frames=len(history_models),
-                                   interval=interval, repeat=True)
+        ax.set_title(f'Flash Point: Fire Rescue - Frame {frame}/{len(history_models)-1}',
+                    fontsize=14, fontweight='bold')
+
+        return []
+
+    anim = animation.FuncAnimation(
+        fig, update,
+        frames=len(history_models),
+        interval=interval,
+        repeat=True
+    )
+
     plt.tight_layout()
     return anim
-
 
 
 def animar_simulacion_detallada(history_models, interval=100):
@@ -2542,7 +2215,7 @@ def ejecutar_simulacion_accion_por_accion(tipo_agente, max_steps=50, archivo_con
     Ejecuta simulación guardando UN FRAME POR CADA ACCIÓN de cada agente
     ¡ADVERTENCIA! Genera MUCHOS frames (puede ser lento)
     """
-    model = Tablero(width=10, height=8, num_agentes=6,
+    model = Tablero(width=8, height=6, num_agentes=6,
                    tipo_agente=tipo_agente, archivo_config=archivo_config)
 
     history_models = []
@@ -2726,24 +2399,15 @@ def ejecutar_simulacion_accion_por_accion(tipo_agente, max_steps=50, archivo_con
     return history_models
 
 # ==========================================
-# CELDA 0: CONFIGURACIÓN INICIAL
-# ==========================================
-import numpy as np
-import matplotlib.pyplot as plt
-from IPython.display import HTML
-
-print("📁 Creando archivo de configuración...")
-
-# ==========================================
 # CREAR ARCHIVO DE CONFIGURACIÓN
 # ==========================================
 if __name__ == "__main__":
-    config_text = """1001 1000 1100 1001 1100 0001 1000 1100
+    config_text = """1001 1000 1100 1001 1100 1001 1000 1100
     0001 0000 0110 0011 0110 0011 0010 0110
-    0000 0100 1001 1000 1000 1100 1001 1100
-    0011 0110 0011 0010 0010 0110 0011 0010
+    0001 0100 1001 1000 1000 1100 1001 1100
+    0011 0110 0011 0010 0010 0110 0011 0110
     1001 1000 1000 1000 1100 1001 1100 1101
-    0011 0010 0000 0010 0110 0011 0110 0111
+    0011 0010 0010 0010 0110 0011 0110 0111
     2 4 v
     5 1 f
     5 8 v
@@ -2773,334 +2437,92 @@ if __name__ == "__main__":
     with open('config.txt', 'w') as f:
         f.write(config_text)
 
-    print("✅ Archivo 'config.txt' creado exitosamente")
-    print("\n" + "="*50)
-    print("CONFIGURACIÓN COMPLETADA")
-    print("="*50)
-    print("\nAhora puedes ejecutar las siguientes celdas:")
-    print("  📊 Celda 1: Gráficas Comparativas")
-    print("  🎲 Celda 2: Animación Estrategia Aleatoria")
-    print("  🎯 Celda 3: Animación Estrategia Inteligente")
+    print("✅ Archivo de configuración creado")
 
     # ==========================================
-    # CELDA 1: GRÁFICAS COMPARATIVAS
+    # 1. EJECUTAR SIMULACIONES BÁSICAS
     # ==========================================
     print("\n" + "="*50)
     print("FLASH POINT: FIRE RESCUE")
+    print("="*50)
+
+    # Ejecutar simulación inteligente
+    print("\n📊 Ejecutando estrategia INTELIGENTE...")
+    history_smart = ejecutar_simulacion_con_animacion(
+        tipo_agente=Bombero,
+        max_steps=100,
+        archivo_config='config.txt'
+    )
+
+    # Ejecutar simulación aleatoria
+    print("\n🎲 Ejecutando estrategia ALEATORIA...")
+    history_random = ejecutar_simulacion_con_animacion(
+        tipo_agente=BomberoAleatorio,
+        max_steps=100,
+        archivo_config='config.txt'
+    )
+
+    # ==========================================
+    # 2. COMPARAR ESTRATEGIAS (10 SIMULACIONES)
+    # ==========================================
+    print("\n" + "="*50)
     print("COMPARACIÓN DE ESTRATEGIAS")
     print("="*50)
 
-    # Comparar estrategias con 10 simulaciones
     df_aleatorio, df_inteligente = comparar_estrategias(
         archivo_config='config.txt',
         num_simulaciones=10
     )
 
-    print("\n✅ Gráficas generadas correctamente")
-    print("Puedes ver las estadísticas y boxplots arriba")
-
     # ==========================================
-    # CELDA 2: ANIMACIÓN ESTRATEGIA ALEATORIA
+    # 3. SIMULACIÓN ACCIÓN POR ACCIÓN (⚠️ MUCHOS FRAMES)
     # ==========================================
-    from IPython.display import HTML
-
     print("\n" + "="*50)
-    print("ANIMACIÓN: ESTRATEGIA ALEATORIA")
+    print("SIMULACIÓN ACCIÓN POR ACCIÓN")
     print("="*50)
 
-    # Ejecutar simulación aleatoria con frames detallados
-    print("\n🎲 Ejecutando estrategia ALEATORIA (acción por acción)...")
-    history_random = ejecutar_simulacion_accion_por_accion(
-        tipo_agente=BomberoAleatorio,
-        max_steps=30,  # 30 steps es suficiente para ver el comportamiento
-        archivo_config='config.txt'
-    )
-
-    # Crear animación detallada
-    print("\n🎬 Creando animación detallada...")
-    anim_random = animar_simulacion_detallada(history_random, interval=100)
-
-    print(f"\n✅ Animación lista!")
-    print(f"Total de frames: {len(history_random)}")
-    print(f"⚠️  Cargando animación (puede tardar unos segundos)...\n")
-
-    # Mostrar animación
-    HTML(anim_random.to_jshtml())
-
-    # ==========================================
-    # CELDA 3: ANIMACIÓN ESTRATEGIA INTELIGENTE
-    # ==========================================
-    from IPython.display import HTML
-
-    print("\n" + "="*50)
-    print("ANIMACIÓN: ESTRATEGIA INTELIGENTE")
-    print("="*50)
-
-    # Ejecutar simulación inteligente con frames detallados
-    print("\n🎯 Ejecutando estrategia INTELIGENTE (acción por acción)...")
-    history_smart = ejecutar_simulacion_accion_por_accion(
+    print("\n📊 Estrategia Inteligente (ACCIÓN POR ACCIÓN):")
+    history_accion_smart = ejecutar_simulacion_accion_por_accion(
         tipo_agente=Bombero,
-        max_steps=30,  # 30 steps es suficiente para ver el comportamiento
+        max_steps=20,  # Menos steps porque genera MUCHOS frames
         archivo_config='config.txt'
     )
 
-    # Crear animación detallada
-    print("\n🎬 Creando animación detallada...")
-    anim_smart = animar_simulacion_detallada(history_smart, interval=100)
+    # ==========================================
+    # 4. CREAR ANIMACIONES
+    # ==========================================
+    print("\n" + "="*50)
+    print("CREANDO ANIMACIONES")
+    print("="*50)
 
-    print(f"\n✅ Animación lista!")
-    print(f"Total de frames: {len(history_smart)}")
-    print(f"⚠️  Cargando animación (puede tardar unos segundos)...\n")
+    # Animación básica (un frame por step) - RÁPIDA
+    print("\n🎬 Creando animación básica (1 frame/step)...")
+    anim_basica = animar_simulacion(history_smart, interval=300)
 
-    # Mostrar animación
-    HTML(anim_smart.to_jshtml())
+    # Animación detallada (acción por acción) - LENTA pero completa
+    print("🎬 Creando animación detallada (acción por acción)...")
+    anim_detallada = animar_simulacion_detallada(history_accion_smart, interval=100)
 
-    # ============================================
-    # CÓDIGO PARA GUARDAR SIMULACIÓN COMO GIF
-    # ============================================
-    # Añadir al final de tu notebook en una celda nueva
+    # ==========================================
+    # 5. MOSTRAR ANIMACIÓN EN JUPYTER
+    # ==========================================
+    from IPython.display import HTML
 
-    # OPCIÓN 1: Instalar pillow si no está instalado (ejecutar una vez)
-    #
+    print("\n✅ Todo listo! Mostrando animación...")
+    print(f"Frames animación básica: {len(history_smart)}")
+    print(f"Frames animación detallada: {len(history_accion_smart)}")
+    print("\n⚠️  La animación detallada puede tardar en cargar...")
 
+    # OPCIÓN 1: Mostrar animación básica (más rápida)
+    # HTML(anim_basica.to_jshtml())
 
-    # ============================================
-    # FUNCIÓN PARA GUARDAR GIF
-    # ============================================
+    # OPCIÓN 2: Mostrar animación detallada (acción por acción)
+    HTML(anim_detallada.to_jshtml())
 
-    def guardar_simulacion_gif(history_models, filename="simulacion_inteligente.gif", interval=300, dpi=100):
-        """
-        Guarda la animación de la simulación como archivo GIF
-
-        Parámetros:
-        - history_models: Lista de estados del modelo (del ejecutar_simulacion)
-        - filename: Nombre del archivo GIF a guardar
-        - interval: Milisegundos entre frames (300 = 0.3 segundos)
-        - dpi: Calidad de la imagen (100 = buena calidad, 150 = alta calidad)
-        """
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as patches
-        import matplotlib.animation as animation
-        from matplotlib.lines import Line2D
-
-        fig, ax = plt.subplots(figsize=(14, 10))
-
-        def update(frame):
-            ax.clear()
-            model = history_models[frame]
-
-            # Dibujar celdas
-            for x in range(model.grid.width):
-                for y in range(model.grid.height):
-                    es_edificio = model.es_celda_edificio(x, y)
-
-                    if not es_edificio:
-                        if (x, y) in model.base_position:
-                            color = 'yellow'
-                        else:
-                            color = '#d3d3d3'
-                    else:
-                        if (x, y) in model.posicionesFuego:
-                            color = 'orange'
-                        elif (x, y) in model.posicionesHumo:
-                            color = 'gray'
-                        elif (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
-                            color = 'lightblue'
-                        elif (x, y) in model.posicionesPOI:
-                            color = 'lightgreen'
-                        else:
-                            color = 'white'
-
-                    rect = patches.Rectangle((x, y), 1, 1, linewidth=0.5,
-                                            edgecolor='darkgray', facecolor=color, alpha=0.8)
-                    ax.add_patch(rect)
-
-                    # Textos
-                    if (x, y) in model.base_position:
-                        ax.text(x+0.5, y+0.5, "BASE", ha="center", va="center",
-                                fontsize=7, fontweight="bold")
-                    elif (x, y) in model.civiles_revelados and model.civiles_revelados[(x, y)]:
-                        ax.text(x+0.5, y+0.5, "C", ha="center", va="center",
-                                fontsize=12, fontweight="bold", color="blue")
-                    elif (x, y) in model.posicionesPOI:
-                        ax.text(x+0.5, y+0.5, "?", ha="center", va="center",
-                                fontsize=14, fontweight="bold", color="darkgreen")
-
-            # Borde del edificio
-            edificio_rect = patches.Rectangle(
-                (model.edificio_offset_x, model.edificio_offset_y),
-                model.edificio_width, model.edificio_height,
-                linewidth=4, edgecolor='black', facecolor='none'
-            )
-            ax.add_patch(edificio_rect)
-
-            # Bomberos
-            for idx, agent in enumerate(model.schedule):
-                x, y = agent.pos
-                circle = patches.Circle((x+0.5, y+0.5), 0.35, color='red', alpha=0.9)
-                ax.add_patch(circle)
-                texto = f"B{idx+1}+C" if agent.tieneCivil else f"B{idx+1}"
-                ax.text(x+0.5, y+0.5, texto, ha="center", va="center",
-                        fontsize=8, color="white", fontweight="bold")
-
-            # Paredes
-            for (px, py), paredes in model.paredes.items():
-                if not model.es_celda_edificio(px, py):
-                    continue
-                danos = model.paredes_dano.get((px, py), {})
-
-                for dir, tiene in paredes.items():
-                    if not tiene or danos.get(dir, 0) >= 2:
-                        continue
-                    grosor = 3 if danos.get(dir, 0) == 0 else 2
-                    color_pared = 'black' if danos.get(dir, 0) == 0 else 'red'
-
-                    if dir == 'arriba':
-                        ax.plot([px, px+1], [py, py], color=color_pared, linewidth=grosor)
-                    elif dir == 'abajo':
-                        ax.plot([px, px+1], [py+1, py+1], color=color_pared, linewidth=grosor)
-                    elif dir == 'izquierda':
-                        ax.plot([px, px], [py, py+1], color=color_pared, linewidth=grosor)
-                    elif dir == 'derecha':
-                        ax.plot([px+1, px+1], [py, py+1], color=color_pared, linewidth=grosor)
-
-            # Puertas
-            for (c1, c2), info in model.puertas.items():
-                mx = (c1[0] + c2[0]) / 2 + 0.5
-                my = (c1[1] + c2[1]) / 2 + 0.5
-                color_puerta = 'saddlebrown' if not info['abierta'] else 'lime'
-                ax.plot(mx, my, 's' if not info['abierta'] else 'o',
-                    color=color_puerta, markersize=8)
-
-            # Estadísticas en el título
-            ax.set_xlim(0, model.grid.width)
-            ax.set_ylim(0, model.grid.height)
-            ax.set_aspect("equal")
-            ax.invert_yaxis()
-
-            titulo = f"Flash Point - Step {frame}/{len(history_models)-1}\n"
-            titulo += f"Rescatados: {model.civiles_rescatados} | "
-            titulo += f"Perdidos: {model.civiles_perdidos} | "
-            titulo += f"Daño: {model.puntos_dano}/25"
-            ax.set_title(titulo, fontsize=12, fontweight='bold')
-
-            ax.set_xticks(range(model.grid.width + 1))
-            ax.set_yticks(range(model.grid.height + 1))
-            ax.grid(True, alpha=0.3)
-
-            # Leyenda
-            legend_elements = [
-                patches.Patch(facecolor='yellow', edgecolor='black', label='Base'),
-                patches.Patch(facecolor='orange', edgecolor='black', label='Fuego'),
-                patches.Patch(facecolor='gray', edgecolor='black', label='Humo'),
-                patches.Patch(facecolor='lightblue', edgecolor='black', label='Civil'),
-                patches.Patch(facecolor='lightgreen', edgecolor='black', label='POI (?)'),
-                patches.Circle((0,0), 0.1, color='red', label='Bombero'),
-            ]
-            ax.legend(handles=legend_elements, loc='upper left', fontsize=8)
-
-        print(f"🎬 Creando GIF con {len(history_models)} frames...")
-
-        anim = animation.FuncAnimation(fig, update, frames=len(history_models),
-                                    interval=interval, repeat=True)
-
-        # Guardar como GIF
-        print(f"💾 Guardando como '{filename}'...")
-        anim.save(filename, writer='pillow', fps=1000//interval, dpi=dpi)
-
-        plt.close(fig)
-        print(f"✅ GIF guardado exitosamente: {filename}")
-
-        return filename
-
-
-    # ============================================
-    # CÓMO USAR - EJEMPLO COMPLETO
-    # ============================================
-    """
-    # CELDA 1: Ejecutar simulación inteligente
-    print("🚒 Ejecutando simulación inteligente...")
-
-    model = Tablero(width=10, height=8, num_agentes=6,
-                    tipo_agente=Bombero,
-                    archivo_config='/content/config.txt')  # o tu archivo de config
-
-    # Guardar historial de estados
-    history = []
-    history.append(copy.deepcopy(model))
-
-    for step in range(100):
-        model.step()
-        history.append(copy.deepcopy(model))
-
-        game_over, razon = model.verificar_game_over()
-        if game_over or model.civiles_rescatados >= 7:
-            print(f"Simulación terminada en step {step}: {razon if game_over else 'Victoria!'}")
-            break
-
-    print(f"Total de frames: {len(history)}")
-
-
-    # CELDA 2: Guardar como GIF
-    guardar_simulacion_gif(
-        history_models=history,
-        filename="simulacion_inteligente.gif",  # Nombre del archivo
-        interval=400,  # 400ms entre frames (más lento = más fácil de ver)
-        dpi=100  # Calidad (100=buena, 150=alta)
-    )
-
-    # El archivo se guardará en /content/ en Colab
-    # Puedes descargarlo desde el panel de archivos de la izquierda
-    """
-
-
-    # ============================================
-    # VERSIÓN SIMPLIFICADA (copiar directo a Colab)
-    # ============================================
-    """
-    # Ejecutar todo en una celda:
-
-    import copy
-
-    # 1. Crear modelo y ejecutar
-    model = Tablero(width=10, height=8, num_agentes=6,
-                    tipo_agente=Bombero,
-                    archivo_config='/content/config.txt')
-
-    history = [copy.deepcopy(model)]
-    for step in range(100):
-        model.step()
-        history.append(copy.deepcopy(model))
-        game_over, _ = model.verificar_game_over()
-        if game_over or model.civiles_rescatados >= 7:
-            break
-
-    # 2. Guardar GIF
-    guardar_simulacion_gif(history, "bomberos_inteligentes.gif", interval=400)
-
-    # 3. Descargar (en Colab)
-    from google.colab import files
-    files.download("bomberos_inteligentes.gif")
-    """
-
-    import copy
-
-    # Crear modelo inteligente
-    model = Tablero(width=10, height=8, num_agentes=6,
-                    tipo_agente=Bombero,
-                    archivo_config='/content/config.txt')
-
-    # Guardar historial de estados
-    history = [copy.deepcopy(model)]
-    for step in range(100):
-        model.step()
-        history.append(copy.deepcopy(model))
-        game_over, _ = model.verificar_game_over()
-        if game_over or model.civiles_rescatados >= 7:
-            break
-
-    # Guardar como GIF
-    guardar_simulacion_gif(history, "simulacion_inteligente.gif", interval=400)
-
-    from google.colab import files
-    files.download("simulacion_inteligente.gif")
+    # ==========================================
+    # OPCIONAL: GUARDAR COMO GIF
+    # ==========================================
+    # Descomenta las siguientes líneas si quieres guardar como GIF:
+    # print("\n💾 Guardando animación como GIF...")
+    # anim_detallado.save('simulacion_detallada.gif', writer='pillow', fps=10)
+    # print("✅ GIF guardado como 'simulacion_detallada.gif'")
